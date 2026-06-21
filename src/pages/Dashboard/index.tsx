@@ -272,7 +272,7 @@ export const DashboardPage: React.FC = () => {
                 lowTicketNext7Days.slice(0, 5).map((alert: any, index: number) => (
                   <div
                     key={index}
-                    onClick={() => navigate('/exhibitions')}
+                    onClick={() => navigate(`/exhibitions?edit=${alert.exhibition.id}`)}
                     className="p-2.5 bg-amber-50/50 rounded-lg flex items-center justify-between hover:bg-amber-50 transition-colors cursor-pointer group"
                   >
                     <div className="min-w-0 flex-1">
@@ -312,7 +312,7 @@ export const DashboardPage: React.FC = () => {
                 waitlists.slice(0, 5).map((wl) => (
                   <div
                     key={wl.id}
-                    onClick={() => navigate('/exhibitions')}
+                    onClick={() => navigate(`/exhibitions?waitlist=${wl.session?.exhibitionId}`)}
                     className="p-2.5 bg-blue-50/50 rounded-lg flex items-center justify-between hover:bg-blue-50 transition-colors cursor-pointer group"
                   >
                     <div className="min-w-0 flex-1">
@@ -352,7 +352,7 @@ export const DashboardPage: React.FC = () => {
                 abnormalAttendance.slice(0, 5).map((item: any, index: number) => (
                   <div
                     key={item.exhibition.id}
-                    onClick={() => navigate('/exhibitions')}
+                    onClick={() => navigate(`/exhibitions?edit=${item.exhibition.id}`)}
                     className="p-2.5 bg-red-50/50 rounded-lg flex items-center justify-between hover:bg-red-50 transition-colors cursor-pointer group"
                   >
                     <div className="min-w-0 flex-1">

@@ -243,17 +243,32 @@ export const exhibitionService = {
 
     const newSession = this.getSessionById(newSessionId);
     const oldSession = this.getSessionById(oldSessionId);
-    if (!newSession || !oldSession) return false;
+    if (!newSession) return false;
 
     const totalCount = bookings.reduce((sum, b) => sum + b.count, 0);
     const remaining = newSession.capacity - newSession.bookedCount;
     if (remaining < totalCount) return false;
 
+    const newExhibition = this.getById(newSession.exhibitionId);
+
     bookings.forEach(booking => {
-      bookingService.update(booking.id, { sessionId: newSessionId });
+      const ticketType = this.getTicketTypeById(booking.ticketTypeId);
+      bookingService.update(booking.id, {
+        sessionId: newSessionId,
+        snapshot: {
+          sessionDate: newSession.date,
+          sessionStartTime: newSession.startTime,
+          sessionEndTime: newSession.endTime,
+          ticketTypeName: ticketType?.name || booking.snapshot?.ticketTypeName || '',
+          ticketTypePrice: ticketType?.price ?? booking.snapshot?.ticketTypePrice ?? 0,
+          exhibitionTitle: newExhibition?.title || booking.snapshot?.exhibitionTitle || '',
+        },
+      });
     });
 
-    this.decrementBookedCount(oldSessionId, totalCount);
+    if (oldSession) {
+      this.decrementBookedCount(oldSessionId, totalCount);
+    }
     this.incrementBookedCount(newSessionId, totalCount);
 
     return true;

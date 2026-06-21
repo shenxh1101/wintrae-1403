@@ -10,7 +10,6 @@ import {
   Search,
   Phone,
   AlertTriangle,
-  UserClock,
   Bell,
   Clock3,
 } from 'lucide-react';
@@ -219,7 +218,7 @@ export const MyBookingsPage: React.FC = () => {
                     : 'text-gray-500 hover:text-gray-700'
                 )}
               >
-                <UserClock className="w-4 h-4" />
+                <Clock3 className="w-4 h-4" />
                 候补 ({waitlists.length})
               </button>
             </div>
@@ -328,7 +327,7 @@ export const MyBookingsPage: React.FC = () => {
           waitlists.length === 0 ? (
             <div className="card p-12 text-center">
               <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                <UserClock className="w-8 h-8 text-gray-300" />
+                <Clock3 className="w-8 h-8 text-gray-300" />
               </div>
               <p className="text-gray-500 mb-2">暂无候补记录</p>
               <p className="text-gray-400 text-sm mb-4">
@@ -354,7 +353,7 @@ export const MyBookingsPage: React.FC = () => {
                   <div key={wl.id} className="card overflow-hidden">
                     <div className="flex flex-col md:flex-row">
                       <div className="md:w-48 h-32 md:h-auto shrink-0 bg-gradient-to-br from-accent-blue/20 to-primary-100 flex items-center justify-center">
-                        <UserClock className="w-12 h-12 text-primary-400" />
+                        <Clock3 className="w-12 h-12 text-primary-400" />
                       </div>
                       <div className="flex-1 p-5">
                         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">

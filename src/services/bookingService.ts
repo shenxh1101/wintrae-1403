@@ -217,7 +217,22 @@ export const bookingService = {
       exhibitionService.incrementBookedCount(newSessionId, newCount);
     }
 
-    return this.update(bookingId, { sessionId: newSessionId, count: newCount });
+    const newSession = exhibitionService.getSessionById(newSessionId);
+    const newExhibition = newSession ? exhibitionService.getById(newSession.exhibitionId) : null;
+    const ticketType = exhibitionService.getTicketTypeById(booking.ticketTypeId);
+
+    const snapshotUpdate = newSession ? {
+      snapshot: {
+        sessionDate: newSession.date,
+        sessionStartTime: newSession.startTime,
+        sessionEndTime: newSession.endTime,
+        ticketTypeName: ticketType?.name || booking.snapshot?.ticketTypeName || '',
+        ticketTypePrice: ticketType?.price ?? booking.snapshot?.ticketTypePrice ?? 0,
+        exhibitionTitle: newExhibition?.title || booking.snapshot?.exhibitionTitle || '',
+      },
+    } : {};
+
+    return this.update(bookingId, { sessionId: newSessionId, count: newCount, ...snapshotUpdate });
   },
 
   cancel(id: string): { success: boolean; notified?: any[] } {

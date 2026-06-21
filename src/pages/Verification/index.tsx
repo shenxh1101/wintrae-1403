@@ -65,10 +65,8 @@ export const VerificationPage: React.FC = () => {
   const todayBookings = useMemo(() => {
     const allBookings = bookingService.getAllWithDetails();
     const todayOnly = allBookings.filter(b => {
-      if (b.status === 'cancelled') {
-        return b.session && isTodayDate(b.session.date);
-      }
-      return b.session && isTodayDate(b.session.date) && b.status === 'confirmed';
+      if (!b.session || !isTodayDate(b.session.date)) return false;
+      return ['confirmed', 'cancelled', 'checked_in'].includes(b.status);
     });
     return todayOnly;
   }, [refreshKey]);
@@ -88,7 +86,7 @@ export const VerificationPage: React.FC = () => {
       case 'checked':
         result = result.filter(b => {
           const v = verificationService.getByBookingId(b.id);
-          return v && v.status === 'success';
+          return (v && v.status === 'success') || b.status === 'checked_in';
         });
         break;
       case 'late':
@@ -118,7 +116,7 @@ export const VerificationPage: React.FC = () => {
   const groupStats = useMemo(() => {
     const checked = filteredBookings.filter(b => {
       const v = verificationService.getByBookingId(b.id);
-      return v && v.status === 'success';
+      return (v && v.status === 'success') || b.status === 'checked_in';
     }).length;
     const late = filteredBookings.filter(b => {
       const v = verificationService.getByBookingId(b.id);
@@ -491,11 +489,11 @@ export const VerificationPage: React.FC = () => {
                 className={cn(
                   'p-2 rounded-lg text-xs text-center transition-all',
                   statusGroup === 'notArrived'
-                    ? 'bg-amber-500 text-white'
+                    ? 'bg-slate-500 text-white'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 )}
               >
-                <p className="text-lg font-bold text-amber-600">{groupStats.notArrived}</p>
+                <p className="text-lg font-bold text-slate-600">{groupStats.notArrived}</p>
                 <p className="text-[10px] opacity-80">未到</p>
               </button>
               <button

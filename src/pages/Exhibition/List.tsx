@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Plus,
   Edit2,
@@ -14,7 +15,6 @@ import {
   CheckCircle,
   XCircle,
   ArrowRight,
-  UserClock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -28,6 +28,8 @@ import type { Exhibition, Session, TicketType, WaitlistWithDetails } from '@/typ
 const LANGUAGE_OPTIONS = ['中文', 'English', '日本語', '한국어', 'Français'];
 
 export const ExhibitionListPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [exhibitions, setExhibitions] = useState<Exhibition[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingExhibition, setEditingExhibition] = useState<Exhibition | null>(null);
@@ -54,7 +56,6 @@ export const ExhibitionListPage: React.FC = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingExhibition, setDeletingExhibition] = useState<Exhibition | null>(null);
   const [deleteStats, setDeleteStats] = useState({ bookingCount: 0, sessionCount: 0 });
-  const [showSaveWarning, setShowSaveWarning] = useState(false);
   const [pendingSave, setPendingSave] = useState(false);
   const [affectedStats, setAffectedStats] = useState({ bookings: 0, sessions: 0 });
   const [showAffectedDetail, setShowAffectedDetail] = useState(false);
@@ -139,6 +140,28 @@ export const ExhibitionListPage: React.FC = () => {
   useEffect(() => {
     loadExhibitions();
   }, []);
+
+  useEffect(() => {
+    if (exhibitions.length === 0) return;
+
+    const editId = searchParams.get('edit');
+    const waitlistId = searchParams.get('waitlist');
+
+    if (editId) {
+      const target = exhibitions.find(e => e.id === editId);
+      if (target) {
+        handleOpenForm(target);
+        setShowForm(true);
+        setSearchParams({}, { replace: true });
+      }
+    } else if (waitlistId) {
+      const target = exhibitions.find(e => e.id === waitlistId);
+      if (target) {
+        handleViewWaitlist(target);
+        setSearchParams({}, { replace: true });
+      }
+    }
+  }, [exhibitions, searchParams]);
 
   const loadExhibitions = () => {
     setExhibitions(exhibitionService.getAll().sort((a, b) => 
@@ -276,6 +299,14 @@ export const ExhibitionListPage: React.FC = () => {
       const finalSessionActions = customActions.sessionActions || sessionActions;
       const finalTicketActions = customActions.ticketActions || ticketActions;
 
+      Object.entries(finalTicketActions).forEach(([ticketTypeId, action]) => {
+        const act = action as any;
+        if (act.action === 'cancel') {
+          const bookingsToCancel = bookingService.getAll().filter(b => b.ticketTypeId === ticketTypeId && b.status !== 'cancelled');
+          bookingsToCancel.forEach(b => bookingService.cancel(b.id));
+        }
+      });
+
       const allNewSessions = exhibitionService.createSessionsPreview(
         editingExhibition.id,
         formData.startDate,
@@ -326,7 +357,6 @@ export const ExhibitionListPage: React.FC = () => {
     }
 
     setShowForm(false);
-    setShowSaveWarning(false);
     setShowAffectedDetail(false);
     setPendingSave(false);
     loadExhibitions();
@@ -517,10 +547,10 @@ export const ExhibitionListPage: React.FC = () => {
                             className="p-2 hover:bg-blue-50 rounded-lg text-gray-500 hover:text-blue-600 transition-colors"
                             title="候补名单"
                           >
-                            <UserClock className="w-4 h-4" />
+                            <Clock className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleEdit(exhibition); }}
+                            onClick={(e) => { e.stopPropagation(); handleOpenForm(exhibition); }}
                             className="p-2 hover:bg-primary-50 rounded-lg text-gray-500 hover:text-primary-900 transition-colors"
                             title="编辑"
                           >
@@ -876,85 +906,6 @@ export const ExhibitionListPage: React.FC = () => {
       </Modal>
 
       <Modal
-        isOpen={showSaveWarning}
-        onClose={() => {
-          setShowSaveWarning(false);
-          setPendingSave(false);
-        }}
-        title="保存提示"
-        size="md"
-      >
-        <div className="space-y-4">
-          <div className="flex items-start gap-4 p-4 bg-amber-50 rounded-xl">
-            <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
-              <AlertTriangle className="w-6 h-6 text-amber-600" />
-            </div>
-            <div className="flex-1">
-              <h4 className="font-medium text-amber-900 mb-1">
-                本场展览已有 {affectedStats.bookings} 条预约
-              </h4>
-              <p className="text-sm text-amber-700">
-                修改日期、场次或票种后，已有的预约记录会受到影响。
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <p className="text-sm font-medium text-gray-700">请选择处理方式：</p>
-
-            <button
-              onClick={() => doSave('keep')}
-              className="w-full p-4 border border-gray-200 rounded-xl text-left hover:border-primary-300 hover:bg-primary-50/30 transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-gray-800">保留原有预约</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    预约仍然有效，观众可查看原来的参观日期、人数和票种信息（从快照读取）
-                  </p>
-                </div>
-                <ChevronRight className="w-5 h-5 text-gray-400" />
-              </div>
-            </button>
-
-            <button
-              onClick={() => doSave('cancel')}
-              className="w-full p-4 border border-gray-200 rounded-xl text-left hover:border-red-300 hover:bg-red-50/30 transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <XCircle className="w-5 h-5 text-red-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-gray-800">取消全部相关预约</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    所有已预约的订单将被取消，系统会自动处理候补队列
-                  </p>
-                </div>
-                <ChevronRight className="w-5 h-5 text-gray-400" />
-              </div>
-            </button>
-          </div>
-
-          <div className="pt-2">
-            <Button
-              variant="ghost"
-              fullWidth
-              onClick={() => {
-                setShowSaveWarning(false);
-                setPendingSave(false);
-              }}
-            >
-              取消保存
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal
         isOpen={showAffectedDetail}
         onClose={() => {
           setShowAffectedDetail(false);
@@ -1086,18 +1037,41 @@ export const ExhibitionListPage: React.FC = () => {
           {affectedTicketTypes.length > 0 && (
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-3">票种变更处理</h4>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {affectedTicketTypes.map((tt) => (
-                  <div key={tt.id} className="border border-gray-200 rounded-xl p-3 flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-gray-800">
-                        {tt.name} <span className="text-xs text-gray-400 ml-1">¥{tt.price}</span>
-                      </p>
-                      <p className="text-xs text-gray-500">{tt.usageCount} 条预约使用</p>
+                  <div key={tt.id} className="border border-gray-200 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="font-medium text-gray-800">
+                          {tt.name} <span className="text-xs text-gray-400 ml-1">¥{tt.price}</span>
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">{tt.usageCount} 条预约使用此票种</p>
+                      </div>
                     </div>
-                    <span className="px-2 py-1 bg-green-100 text-green-700 rounded-lg text-xs">
-                      自动保留快照
-                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setTicketActions(prev => ({ ...prev, [tt.id]: { action: 'keep' } }))}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+                          (ticketActions[tt.id]?.action || 'keep') === 'keep'
+                            ? 'bg-green-50 border-green-400 text-green-700'
+                            : 'border-gray-200 text-gray-600 hover:border-green-300'
+                        }`}
+                      >
+                        <CheckCircle className="w-3.5 h-3.5 inline mr-1" />
+                        保留快照（推荐）
+                      </button>
+                      <button
+                        onClick={() => setTicketActions(prev => ({ ...prev, [tt.id]: { action: 'cancel' } }))}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+                          ticketActions[tt.id]?.action === 'cancel'
+                            ? 'bg-red-50 border-red-400 text-red-700'
+                            : 'border-gray-200 text-gray-600 hover:border-red-300'
+                        }`}
+                      >
+                        <XCircle className="w-3.5 h-3.5 inline mr-1" />
+                        仅取消这些预约
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1135,7 +1109,7 @@ export const ExhibitionListPage: React.FC = () => {
         <div className="space-y-5">
           {waitlistData.length === 0 ? (
             <div className="text-center py-12">
-              <UserClock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <Clock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-500">暂无候补记录</p>
             </div>
           ) : (
