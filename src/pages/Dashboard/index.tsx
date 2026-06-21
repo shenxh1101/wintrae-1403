@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   LineChart,
   Line,
@@ -42,7 +43,8 @@ import { cn } from '@/lib/utils';
 import type { BookingWithDetails, Announcement, WaitlistWithDetails } from '@/types';
 
 export const DashboardPage: React.FC = () => {
-  const [trendDays, setTrendDays] = useState<7 | 30>(7);
+  const navigate = useNavigate();
+  const [trendDays, setTrendDays] = useState(7);
   const [bookingTrend, setBookingTrend] = useState<any[]>([]);
   const [timeSlotStats, setTimeSlotStats] = useState<any[]>([]);
   const [lowTicketAlerts, setLowTicketAlerts] = useState<any[]>([]);
@@ -270,19 +272,23 @@ export const DashboardPage: React.FC = () => {
                 lowTicketNext7Days.slice(0, 5).map((alert: any, index: number) => (
                   <div
                     key={index}
-                    className="p-2.5 bg-amber-50/50 rounded-lg flex items-center justify-between hover:bg-amber-50 transition-colors cursor-pointer"
+                    onClick={() => navigate('/exhibitions')}
+                    className="p-2.5 bg-amber-50/50 rounded-lg flex items-center justify-between hover:bg-amber-50 transition-colors cursor-pointer group"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-gray-800 truncate">
+                      <p className="text-sm font-medium text-gray-800 truncate group-hover:text-primary-900">
                         {alert.exhibition.title}
                       </p>
                       <p className="text-xs text-gray-500">
                         {formatDate(alert.session.date, 'MM-dd')} {alert.session.startTime}
                       </p>
                     </div>
-                    <span className="text-xs font-bold text-amber-600 ml-2 flex-shrink-0">
-                      余{alert.remaining}张
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-amber-600 flex-shrink-0">
+                        余{alert.remaining}张
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-primary-600" />
+                    </div>
                   </div>
                 ))
               )}
@@ -306,19 +312,23 @@ export const DashboardPage: React.FC = () => {
                 waitlists.slice(0, 5).map((wl) => (
                   <div
                     key={wl.id}
-                    className="p-2.5 bg-blue-50/50 rounded-lg flex items-center justify-between hover:bg-blue-50 transition-colors cursor-pointer"
+                    onClick={() => navigate('/exhibitions')}
+                    className="p-2.5 bg-blue-50/50 rounded-lg flex items-center justify-between hover:bg-blue-50 transition-colors cursor-pointer group"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-gray-800 truncate">
+                      <p className="text-sm font-medium text-gray-800 truncate group-hover:text-primary-900">
                         {wl.visitorName}
                       </p>
                       <p className="text-xs text-gray-500">
                         {wl.session && `${formatDate(wl.session.date, 'MM-dd')} ${wl.session.startTime}`}
                       </p>
                     </div>
-                    <span className="text-xs text-blue-600 ml-2 flex-shrink-0">
-                      {wl.count}人
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-blue-600 flex-shrink-0">
+                        {wl.count}人
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-primary-600" />
+                    </div>
                   </div>
                 ))
               )}
@@ -342,19 +352,23 @@ export const DashboardPage: React.FC = () => {
                 abnormalAttendance.slice(0, 5).map((item: any, index: number) => (
                   <div
                     key={item.exhibition.id}
-                    className="p-2.5 bg-red-50/50 rounded-lg flex items-center justify-between hover:bg-red-50 transition-colors cursor-pointer"
+                    onClick={() => navigate('/exhibitions')}
+                    className="p-2.5 bg-red-50/50 rounded-lg flex items-center justify-between hover:bg-red-50 transition-colors cursor-pointer group"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-gray-800 truncate">
+                      <p className="text-sm font-medium text-gray-800 truncate group-hover:text-primary-900">
                         {item.exhibition.title}
                       </p>
                       <p className="text-xs text-gray-500">
                         {item.totalChecked}/{item.totalBooked} 人已入场
                       </p>
                     </div>
-                    <span className="text-sm font-bold text-red-600 ml-2 flex-shrink-0">
-                      {item.attendanceRate}%
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-red-600 flex-shrink-0">
+                        {item.attendanceRate}%
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-primary-600" />
+                    </div>
                   </div>
                 ))
               )}

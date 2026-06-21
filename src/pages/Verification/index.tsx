@@ -88,7 +88,7 @@ export const VerificationPage: React.FC = () => {
       case 'checked':
         result = result.filter(b => {
           const v = verificationService.getByBookingId(b.id);
-          return v && v.status !== 'failed';
+          return v && v.status === 'success';
         });
         break;
       case 'late':
@@ -118,7 +118,7 @@ export const VerificationPage: React.FC = () => {
   const groupStats = useMemo(() => {
     const checked = filteredBookings.filter(b => {
       const v = verificationService.getByBookingId(b.id);
-      return v && v.status !== 'failed';
+      return v && v.status === 'success';
     }).length;
     const late = filteredBookings.filter(b => {
       const v = verificationService.getByBookingId(b.id);
@@ -449,7 +449,7 @@ export const VerificationPage: React.FC = () => {
               )}
             </div>
 
-            <div className="grid grid-cols-4 gap-2 mb-4">
+            <div className="grid grid-cols-5 gap-2 mb-4">
               <button
                 onClick={() => setStatusGroup('all')}
                 className={cn(
@@ -473,6 +473,18 @@ export const VerificationPage: React.FC = () => {
               >
                 <p className="text-lg font-bold text-green-600">{groupStats.checked}</p>
                 <p className="text-[10px] opacity-80">已到</p>
+              </button>
+              <button
+                onClick={() => setStatusGroup('late')}
+                className={cn(
+                  'p-2 rounded-lg text-xs text-center transition-all',
+                  statusGroup === 'late'
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                )}
+              >
+                <p className="text-lg font-bold text-amber-600">{groupStats.late}</p>
+                <p className="text-[10px] opacity-80">迟到</p>
               </button>
               <button
                 onClick={() => setStatusGroup('notArrived')}

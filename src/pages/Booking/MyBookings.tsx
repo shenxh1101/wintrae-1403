@@ -10,21 +10,27 @@ import {
   Search,
   Phone,
   AlertTriangle,
+  UserClock,
+  Bell,
+  Clock3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { QRCodeDisplay } from '@/components/features/QRCodeDisplay';
 import { bookingService } from '@/services/bookingService';
+import { waitlistService } from '@/services/waitlistService';
 import { exhibitionService } from '@/services/exhibitionService';
 import { formatDate, formatDateTime } from '@/utils/date';
 import { validatePhone } from '@/utils/validation';
 import { cn } from '@/lib/utils';
-import type { BookingWithDetails } from '@/types';
+import type { BookingWithDetails, WaitlistWithDetails } from '@/types';
 
 export const MyBookingsPage: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'bookings' | 'waitlist'>('bookings');
   const [phone, setPhone] = useState('');
   const [searchPhone, setSearchPhone] = useState('');
   const [bookings, setBookings] = useState<BookingWithDetails[]>([]);
+  const [waitlists, setWaitlists] = useState<WaitlistWithDetails[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<BookingWithDetails | null>(null);
@@ -46,7 +52,14 @@ export const MyBookingsPage: React.FC = () => {
       .filter(Boolean)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
+    const rawWaitlists = waitlistService.getByPhone(phone);
+    const detailedWaitlists = rawWaitlists
+      .map(w => waitlistService.getWithDetails(w.sessionId).find(d => d.id === w.id)!)
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
     setBookings(detailedBookings);
+    setWaitlists(detailedWaitlists);
     setSearchPhone(phone);
     setHasSearched(true);
   };
@@ -168,7 +181,7 @@ export const MyBookingsPage: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
             <div className="flex-1 max-w-md">
               <div className="flex gap-2">
                 <input
@@ -184,9 +197,36 @@ export const MyBookingsPage: React.FC = () => {
                 </Button>
               </div>
             </div>
+            <div className="inline-flex bg-gray-100 rounded-xl p-1">
+              <button
+                onClick={() => setActiveTab('bookings')}
+                className={cn(
+                  'px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5',
+                  activeTab === 'bookings'
+                    ? 'bg-white shadow text-primary-900'
+                    : 'text-gray-500 hover:text-gray-700'
+                )}
+              >
+                <Ticket className="w-4 h-4" />
+                预约 ({bookings.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('waitlist')}
+                className={cn(
+                  'px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5',
+                  activeTab === 'waitlist'
+                    ? 'bg-white shadow text-primary-900'
+                    : 'text-gray-500 hover:text-gray-700'
+                )}
+              >
+                <UserClock className="w-4 h-4" />
+                候补 ({waitlists.length})
+              </button>
+            </div>
           </div>
 
-          {bookings.length === 0 ? (
+          {activeTab === 'bookings' ? (
+            bookings.length === 0 ? (
             <div className="card p-12 text-center">
               <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Ticket className="w-8 h-8 text-gray-300" />
@@ -283,7 +323,105 @@ export const MyBookingsPage: React.FC = () => {
                 </div>
               ))}
             </div>
-          )}
+          )
+        ) : (
+          waitlists.length === 0 ? (
+            <div className="card p-12 text-center">
+              <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <UserClock className="w-8 h-8 text-gray-300" />
+              </div>
+              <p className="text-gray-500 mb-2">暂无候补记录</p>
+              <p className="text-gray-400 text-sm mb-4">
+                手机号 {searchPhone} 暂无候补记录
+              </p>
+              <Button onClick={() => setHasSearched(false)}>返回查询</Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {waitlists.map((wl) => {
+                const statusConfig = {
+                  waiting: { label: '排队中', style: 'bg-blue-100 text-blue-700', Icon: Clock3 },
+                  notified: { label: '已通知', style: 'bg-green-100 text-green-700', Icon: Bell },
+                  expired: { label: '已过期', style: 'bg-gray-100 text-gray-500', Icon: XCircle },
+                  converted: { label: '已转预约', style: 'bg-primary-100 text-primary-700', Icon: CheckCircle },
+                };
+                const cfg = statusConfig[wl.status as keyof typeof statusConfig] || statusConfig.waiting;
+                const { Icon } = cfg;
+                const position = waitlistService.getPosition(wl.id);
+                const waitlistCount = waitlistService.getWaitlistCount(wl.sessionId);
+
+                return (
+                  <div key={wl.id} className="card overflow-hidden">
+                    <div className="flex flex-col md:flex-row">
+                      <div className="md:w-48 h-32 md:h-auto shrink-0 bg-gradient-to-br from-accent-blue/20 to-primary-100 flex items-center justify-center">
+                        <UserClock className="w-12 h-12 text-primary-400" />
+                      </div>
+                      <div className="flex-1 p-5">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h4 className="font-serif font-semibold text-lg text-primary-900 truncate">
+                                {wl.exhibition?.title || '场次'}
+                              </h4>
+                              <span className={cn('badge', cfg.style)}>
+                                <Icon className="w-3 h-3 mr-1" />
+                                {cfg.label}
+                              </span>
+                            </div>
+
+                            <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-3">
+                              <div className="flex items-center gap-1.5">
+                                <Calendar className="w-4 h-4" />
+                                <span>
+                                  {wl.session ? formatDate(wl.session.date) : '-'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Clock className="w-4 h-4" />
+                                <span>
+                                  {wl.session
+                                    ? `${wl.session.startTime} - ${wl.session.endTime}`
+                                    : '-'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Ticket className="w-4 h-4" />
+                                <span>{wl.count} 人</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <span className="text-gray-500">排队位置</span>
+                                <span className="text-lg font-bold text-primary-900">
+                                  {position > 0 ? `第 ${position} 位` : '-'}
+                                </span>
+                                <span className="text-gray-400">/ 共 {waitlistCount} 人</span>
+                              </div>
+                            </div>
+
+                            <p className="text-xs text-gray-400 mt-3">
+                              候补时间：{formatDateTime(wl.createdAt)}
+                            </p>
+                          </div>
+
+                          {wl.status === 'notified' && (
+                            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl">
+                              <Bell className="w-5 h-5 text-green-600 shrink-0" />
+                              <p className="text-xs text-green-700">
+                                有名额了！<br />请尽快联系工作人员确认
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
         </>
       )}
 

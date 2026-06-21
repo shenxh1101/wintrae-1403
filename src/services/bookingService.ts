@@ -29,18 +29,99 @@ export const bookingService = {
     const booking = this.getById(id);
     if (!booking) return undefined;
 
-    const session = exhibitionService.getSessionById(booking.sessionId);
-    const exhibition = session ? exhibitionService.getById(session.exhibitionId) : undefined;
-    const ticketType = exhibitionService.getTicketTypeById(booking.ticketTypeId);
+    let session = exhibitionService.getSessionById(booking.sessionId);
+    let exhibition = session ? exhibitionService.getById(session.exhibitionId) : undefined;
+    let ticketType = exhibitionService.getTicketTypeById(booking.ticketTypeId);
+
+    const snapshot = booking.snapshot;
+    if (snapshot) {
+      if (!session) {
+        session = {
+          id: booking.sessionId,
+          exhibitionId: snapshot.exhibitionTitle || '',
+          date: snapshot.sessionDate,
+          startTime: snapshot.sessionStartTime,
+          endTime: snapshot.sessionEndTime,
+          capacity: 0,
+          bookedCount: 0,
+          __isSnapshot: true,
+        } as any;
+      }
+      if (!exhibition) {
+        exhibition = {
+          id: session?.exhibitionId || '',
+          title: snapshot.exhibitionTitle,
+          description: '',
+          coverImage: '',
+          startDate: snapshot.sessionDate,
+          endDate: snapshot.sessionDate,
+          languages: [],
+          status: 'active',
+          createdAt: booking.createdAt,
+          __isSnapshot: true,
+        } as any;
+      }
+      if (!ticketType) {
+        ticketType = {
+          id: booking.ticketTypeId,
+          exhibitionId: session?.exhibitionId || '',
+          name: snapshot.ticketTypeName,
+          price: snapshot.ticketTypePrice,
+          description: '',
+          __isSnapshot: true,
+        } as any;
+      }
+    }
 
     return { ...booking, session, exhibition, ticketType };
   },
 
   getAllWithDetails(): BookingWithDetails[] {
     return this.getAll().map(booking => {
-      const session = exhibitionService.getSessionById(booking.sessionId);
-      const exhibition = session ? exhibitionService.getById(session.exhibitionId) : undefined;
-      const ticketType = exhibitionService.getTicketTypeById(booking.ticketTypeId);
+      let session = exhibitionService.getSessionById(booking.sessionId);
+      let exhibition = session ? exhibitionService.getById(session.exhibitionId) : undefined;
+      let ticketType = exhibitionService.getTicketTypeById(booking.ticketTypeId);
+
+      const snapshot = booking.snapshot;
+      if (snapshot) {
+        if (!session) {
+          session = {
+            id: booking.sessionId,
+            exhibitionId: snapshot.exhibitionTitle || '',
+            date: snapshot.sessionDate,
+            startTime: snapshot.sessionStartTime,
+            endTime: snapshot.sessionEndTime,
+            capacity: 0,
+            bookedCount: 0,
+            __isSnapshot: true,
+          } as any;
+        }
+        if (!exhibition) {
+          exhibition = {
+            id: session?.exhibitionId || '',
+            title: snapshot.exhibitionTitle,
+            description: '',
+            coverImage: '',
+            startDate: snapshot.sessionDate,
+            endDate: snapshot.sessionDate,
+            languages: [],
+            status: 'active',
+            createdAt: booking.createdAt,
+            __isSnapshot: true,
+          } as any;
+        }
+        if (!ticketType) {
+          ticketType = {
+            id: booking.ticketTypeId,
+            exhibitionId: session?.exhibitionId || '',
+            name: snapshot.ticketTypeName,
+            price: snapshot.ticketTypePrice,
+            description: '',
+            __isSnapshot: true,
+          } as any;
+        }
+      }
+
       return { ...booking, session, exhibition, ticketType };
     });
   },

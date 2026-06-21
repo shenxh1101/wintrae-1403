@@ -62,12 +62,13 @@ export const exhibitionService = {
     const end = parseISO(endDate);
     const days = eachDayOfInterval({ start, end });
     const newSessions: Session[] = [];
+    const timestamp = Date.now();
 
     days.forEach((day, dayIndex) => {
       const dateStr = format(day, 'yyyy-MM-dd');
       times.forEach((time, timeIndex) => {
         const session: Session = {
-          id: `sess-${exhibitionId}-${String(dayIndex * times.length + timeIndex).padStart(3, '0')}`,
+          id: `sess-${timestamp}-${String(dayIndex * times.length + timeIndex).padStart(3, '0')}`,
           exhibitionId,
           date: dateStr,
           startTime: time.startTime,
@@ -82,6 +83,39 @@ export const exhibitionService = {
     const updatedSessions = [...sessions, ...newSessions];
     storage.set(keys.SESSIONS, updatedSessions);
     return newSessions;
+  },
+
+  createSessionsPreview(exhibitionId: string, startDate: string, endDate: string, times: { startTime: string; endTime: string }[], capacity: number): Session[] {
+    const start = parseISO(startDate);
+    const end = parseISO(endDate);
+    const days = eachDayOfInterval({ start, end });
+    const newSessions: Session[] = [];
+    const timestamp = Date.now() + Math.floor(Math.random() * 100000);
+
+    days.forEach((day, dayIndex) => {
+      const dateStr = format(day, 'yyyy-MM-dd');
+      times.forEach((time, timeIndex) => {
+        const session: Session = {
+          id: `sess-${timestamp}-${String(dayIndex * times.length + timeIndex).padStart(3, '0')}`,
+          exhibitionId,
+          date: dateStr,
+          startTime: time.startTime,
+          endTime: time.endTime,
+          capacity,
+          bookedCount: 0,
+        };
+        newSessions.push(session);
+      });
+    });
+
+    return newSessions;
+  },
+
+  saveSessions(sessions: Session[]): Session[] {
+    const existingSessions = storage.get<Session[]>(keys.SESSIONS) || [];
+    const updatedSessions = [...existingSessions, ...sessions];
+    storage.set(keys.SESSIONS, updatedSessions);
+    return sessions;
   },
 
   updateSession(id: string, data: Partial<Session>): Session | undefined {

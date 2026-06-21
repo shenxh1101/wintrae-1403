@@ -14,14 +14,16 @@ import {
   CheckCircle,
   XCircle,
   ArrowRight,
+  UserClock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { exhibitionService } from '@/services/exhibitionService';
 import { bookingService } from '@/services/bookingService';
+import { waitlistService } from '@/services/waitlistService';
 import { formatDate } from '@/utils/date';
 import { cn } from '@/lib/utils';
-import type { Exhibition, Session, TicketType } from '@/types';
+import type { Exhibition, Session, TicketType, WaitlistWithDetails } from '@/types';
 
 const LANGUAGE_OPTIONS = ['中文', 'English', '日本語', '한국어', 'Français'];
 
@@ -55,6 +57,15 @@ export const ExhibitionListPage: React.FC = () => {
   const [showSaveWarning, setShowSaveWarning] = useState(false);
   const [pendingSave, setPendingSave] = useState(false);
   const [affectedStats, setAffectedStats] = useState({ bookings: 0, sessions: 0 });
+  const [showAffectedDetail, setShowAffectedDetail] = useState(false);
+  const [affectedSessions, setAffectedSessions] = useState<any[]>([]);
+  const [affectedTicketTypes, setAffectedTicketTypes] = useState<any[]>([]);
+  const [sessionActions, setSessionActions] = useState<Record<string, { action: 'keep' | 'migrate' | 'cancel'; targetSessionKey: string }>>({});
+  const [ticketActions, setTicketActions] = useState<Record<string, { action: 'keep' | 'cancel' }>>({});
+  const [previewNewSessions, setPreviewNewSessions] = useState<any[]>([]);
+  const [showWaitlistModal, setShowWaitlistModal] = useState(false);
+  const [waitlistExhibition, setWaitlistExhibition] = useState<Exhibition | null>(null);
+  const [waitlistData, setWaitlistData] = useState<any[]>([]);
 
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
@@ -193,45 +204,116 @@ export const ExhibitionListPage: React.FC = () => {
     if (editingExhibition) {
       const affected = exhibitionService.getExhibitionAffectedBookings(editingExhibition.id);
       const totalBookings = affected.reduce((sum, a) => sum + a.bookingCount, 0);
-      const totalSessions = affected.filter(a => a.bookingCount > 0).length;
 
       if (totalBookings > 0) {
-        setAffectedStats({ bookings: totalBookings, sessions: totalSessions });
-        setShowSaveWarning(true);
+        const oldSessions = exhibitionService.getSessions(editingExhibition.id);
+        const oldTicketTypes = exhibitionService.getTicketTypes(editingExhibition.id);
+
+        const sessionList = affected.map(a => {
+          const s = oldSessions.find(os => os.id === a.sessionId);
+          return {
+            ...a,
+            session: s,
+            date: s?.date,
+            startTime: s?.startTime,
+            endTime: s?.endTime,
+          };
+        }).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+        const ticketList = oldTicketTypes.filter(tt => {
+          const count = exhibitionService.getTicketTypeUsageCount(tt.id);
+          return count > 0;
+        }).map(tt => ({
+          ...tt,
+          usageCount: exhibitionService.getTicketTypeUsageCount(tt.id),
+        }));
+
+        const newSessionKeys: string[] = [];
+        const sDate = formData.startDate;
+        const eDate = formData.endDate;
+        if (sDate && eDate) {
+          const start = new Date(sDate);
+          const end = new Date(eDate);
+          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const dStr = formatDate(d, 'yyyy-MM-dd');
+            sessions.forEach(t => {
+              newSessionKeys.push(`${dStr}_${t.startTime}_${t.endTime}`);
+            });
+          }
+        }
+
+        const actions: Record<string, { action: 'keep' | 'migrate' | 'cancel'; targetSessionKey: string }> = {};
+        sessionList.forEach(s => {
+          actions[s.sessionId] = { action: 'keep', targetSessionKey: newSessionKeys[0] || '' };
+        });
+
+        const tActions: Record<string, { action: 'keep' | 'cancel' }> = {};
+        ticketList.forEach(t => {
+          tActions[t.id] = { action: 'keep' };
+        });
+
+        setAffectedSessions(sessionList);
+        setAffectedTicketTypes(ticketList);
+        setSessionActions(actions);
+        setTicketActions(tActions);
+        setPreviewNewSessions(newSessionKeys.map(k => {
+          const [date, start, end] = k.split('_');
+          return { key: k, date, start, end, label: `${formatDate(date)} ${start}-${end}` };
+        }));
+        setShowAffectedDetail(true);
         setPendingSave(true);
         return;
       }
     }
 
-    doSave('keep');
+    doSaveDetailed({});
   };
 
-  const doSave = (mode: 'keep' | 'cancel') => {
+  const doSaveDetailed = (customActions?: any) => {
     let exhibition: Exhibition | undefined;
 
     if (editingExhibition) {
-      if (mode === 'cancel') {
-        const sessions = exhibitionService.getSessions(editingExhibition.id);
-        sessions.forEach(s => {
-          exhibitionService.cancelBookingsBySession(s.id);
-        });
-      }
+      const finalSessionActions = customActions.sessionActions || sessionActions;
+      const finalTicketActions = customActions.ticketActions || ticketActions;
+
+      const allNewSessions = exhibitionService.createSessionsPreview(
+        editingExhibition.id,
+        formData.startDate,
+        formData.endDate,
+        sessions,
+        capacity
+      );
+
+      Object.entries(finalSessionActions).forEach(([sessionId, action]) => {
+        const act = action as any;
+        if (act.action === 'cancel') {
+          exhibitionService.cancelBookingsBySession(sessionId);
+        } else if (act.action === 'migrate' && act.targetSessionKey) {
+          const target = allNewSessions.find((s: any) => `${s.date}_${s.startTime}_${s.endTime}` === act.targetSessionKey);
+          if (target) {
+            exhibitionService.migrateBookingsToSession(sessionId, target.id);
+          }
+        }
+      });
 
       exhibition = exhibitionService.update(editingExhibition.id, formData);
       exhibitionService.deleteSessionsByExhibition(editingExhibition.id);
+      exhibitionService.saveSessions(allNewSessions);
       exhibitionService.deleteTicketTypesByExhibition(editingExhibition.id);
     } else {
       exhibition = exhibitionService.create(formData);
     }
 
     if (exhibition) {
-      exhibitionService.createSessions(
-        exhibition.id,
-        formData.startDate,
-        formData.endDate,
-        sessions,
-        capacity
-      );
+      if (!editingExhibition) {
+        exhibitionService.createSessions(
+          exhibition.id,
+          formData.startDate,
+          formData.endDate,
+          sessions,
+          capacity
+        );
+      }
 
       ticketTypes.forEach(ticket => {
         if (ticket.name) {
@@ -245,6 +327,7 @@ export const ExhibitionListPage: React.FC = () => {
 
     setShowForm(false);
     setShowSaveWarning(false);
+    setShowAffectedDetail(false);
     setPendingSave(false);
     loadExhibitions();
   };
@@ -271,6 +354,18 @@ export const ExhibitionListPage: React.FC = () => {
     }
     setShowDeleteConfirm(false);
     setDeletingExhibition(null);
+  };
+
+  const handleViewWaitlist = (exhibition: Exhibition) => {
+    const sessions = exhibitionService.getSessions(exhibition.id);
+    const data = sessions.map(s => ({
+      session: s,
+      waitlists: waitlistService.getWithDetails(s.id),
+    })).filter(d => d.waitlists.length > 0);
+
+    setWaitlistExhibition(exhibition);
+    setWaitlistData(data);
+    setShowWaitlistModal(true);
   };
 
   const addSession = () => {
@@ -418,14 +513,23 @@ export const ExhibitionListPage: React.FC = () => {
                         </Button>
                         <div className="flex gap-1">
                           <button
-                            onClick={() => handleOpenForm(exhibition)}
+                            onClick={(e) => { e.stopPropagation(); handleViewWaitlist(exhibition); }}
+                            className="p-2 hover:bg-blue-50 rounded-lg text-gray-500 hover:text-blue-600 transition-colors"
+                            title="候补名单"
+                          >
+                            <UserClock className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleEdit(exhibition); }}
                             className="p-2 hover:bg-primary-50 rounded-lg text-gray-500 hover:text-primary-900 transition-colors"
+                            title="编辑"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDelete(exhibition)}
+                            onClick={(e) => { e.stopPropagation(); handleDelete(exhibition); }}
                             className="p-2 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-500 transition-colors"
+                            title="删除"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -847,6 +951,243 @@ export const ExhibitionListPage: React.FC = () => {
               取消保存
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showAffectedDetail}
+        onClose={() => {
+          setShowAffectedDetail(false);
+          setPendingSave(false);
+        }}
+        title="处理已有预约"
+        size="lg"
+      >
+        <div className="space-y-5">
+          <div className="p-4 bg-amber-50 rounded-xl">
+            <p className="text-sm text-amber-800">
+              本次修改将影响 <b>{affectedSessions.length}</b> 个场次，共 <b>{affectedSessions.reduce((s, a) => s + a.bookingCount, 0)}</b> 条预约记录。
+              请为每个受影响的场次选择处理方式。
+            </p>
+          </div>
+
+          {affectedSessions.length > 0 && (
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">场次变更处理</h4>
+              <div className="space-y-3 max-h-[280px] overflow-y-auto scrollbar-thin pr-1">
+                {affectedSessions.map((item) => (
+                  <div key={item.sessionId} className="border border-gray-200 rounded-xl p-4">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <p className="font-medium text-primary-900">
+                          {item.date ? formatDate(item.date) : ''} {item.startTime}-{item.endTime}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {item.bookingCount} 条预约 · {item.count} 人次
+                        </p>
+                      </div>
+                      <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
+                        待处理
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2">
+                      <button
+                        onClick={() => setSessionActions({
+                          ...sessionActions,
+                          [item.sessionId]: { ...sessionActions[item.sessionId], action: 'keep' }
+                        })}
+                        className={cn(
+                          'flex items-center justify-between p-3 rounded-lg border-2 text-left transition-all',
+                          sessionActions[item.sessionId]?.action === 'keep'
+                            ? 'border-green-500 bg-green-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className={cn(
+                            'w-4 h-4',
+                            sessionActions[item.sessionId]?.action === 'keep' ? 'text-green-600' : 'text-gray-400'
+                          )} />
+                          <span className="text-sm font-medium text-gray-800">保留旧信息</span>
+                        </div>
+                        <span className="text-xs text-gray-500">快照保存，仍可查看</span>
+                      </button>
+
+                      <button
+                        onClick={() => setSessionActions({
+                          ...sessionActions,
+                          [item.sessionId]: { ...sessionActions[item.sessionId], action: 'migrate' }
+                        })}
+                        className={cn(
+                          'p-3 rounded-lg border-2 text-left transition-all',
+                          sessionActions[item.sessionId]?.action === 'migrate'
+                            ? 'border-primary-900 bg-primary-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        )}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <ArrowRight className={cn(
+                              'w-4 h-4',
+                              sessionActions[item.sessionId]?.action === 'migrate' ? 'text-primary-600' : 'text-gray-400'
+                            )} />
+                            <span className="text-sm font-medium text-gray-800">迁移到新场次</span>
+                          </div>
+                        </div>
+                        {sessionActions[item.sessionId]?.action === 'migrate' && (
+                          <select
+                            className="w-full mt-2 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
+                            value={sessionActions[item.sessionId]?.targetSessionKey || ''}
+                            onChange={(e) => setSessionActions({
+                              ...sessionActions,
+                              [item.sessionId]: {
+                                ...sessionActions[item.sessionId],
+                                targetSessionKey: e.target.value
+                              }
+                            })}
+                          >
+                            <option value="">请选择目标场次...</option>
+                            {previewNewSessions.map((s) => (
+                              <option key={s.key} value={s.key}>{s.label}</option>
+                            ))}
+                          </select>
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => setSessionActions({
+                          ...sessionActions,
+                          [item.sessionId]: { ...sessionActions[item.sessionId], action: 'cancel' }
+                        })}
+                        className={cn(
+                          'flex items-center justify-between p-3 rounded-lg border-2 text-left transition-all',
+                          sessionActions[item.sessionId]?.action === 'cancel'
+                            ? 'border-red-500 bg-red-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <XCircle className={cn(
+                            'w-4 h-4',
+                            sessionActions[item.sessionId]?.action === 'cancel' ? 'text-red-600' : 'text-gray-400'
+                          )} />
+                          <span className="text-sm font-medium text-gray-800">仅取消这部分</span>
+                        </div>
+                        <span className="text-xs text-gray-500">不影响其他场次</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {affectedTicketTypes.length > 0 && (
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">票种变更处理</h4>
+              <div className="space-y-2">
+                {affectedTicketTypes.map((tt) => (
+                  <div key={tt.id} className="border border-gray-200 rounded-xl p-3 flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-gray-800">
+                        {tt.name} <span className="text-xs text-gray-400 ml-1">¥{tt.price}</span>
+                      </p>
+                      <p className="text-xs text-gray-500">{tt.usageCount} 条预约使用</p>
+                    </div>
+                    <span className="px-2 py-1 bg-green-100 text-green-700 rounded-lg text-xs">
+                      自动保留快照
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-3 border-t border-gray-100">
+            <Button
+              variant="ghost"
+              fullWidth
+              onClick={() => {
+                setShowAffectedDetail(false);
+                setPendingSave(false);
+              }}
+            >
+              返回编辑
+            </Button>
+            <Button
+              fullWidth
+              onClick={() => doSaveDetailed()}
+              disabled={Object.values(sessionActions).some(a => a.action === 'migrate' && !a.targetSessionKey)}
+            >
+              确认并保存
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showWaitlistModal}
+        onClose={() => setShowWaitlistModal(false)}
+        title={`${waitlistExhibition?.title} - 候补名单`}
+        size="lg"
+      >
+        <div className="space-y-5">
+          {waitlistData.length === 0 ? (
+            <div className="text-center py-12">
+              <UserClock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500">暂无候补记录</p>
+            </div>
+          ) : (
+            waitlistData.map((item, idx) => (
+              <div key={idx} className="border border-gray-200 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-primary-900">
+                      {formatDate(item.session.date)} {item.session.startTime}-{item.session.endTime}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-lg font-medium">
+                      共 {item.waitlists.length} 人候补
+                    </span>
+                  </div>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {item.waitlists.map((wl: WaitlistWithDetails, wi: number) => {
+                    const statusConfig = {
+                      waiting: { label: '排队中', style: 'bg-blue-100 text-blue-700' },
+                      notified: { label: '已通知', style: 'bg-green-100 text-green-700' },
+                      expired: { label: '已过期', style: 'bg-gray-100 text-gray-500' },
+                      converted: { label: '已转预约', style: 'bg-primary-100 text-primary-700' },
+                    };
+                    const cfg = statusConfig[wl.status as keyof typeof statusConfig] || statusConfig.waiting;
+                    return (
+                      <div key={wl.id} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50/50 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center text-sm font-medium text-primary-700">
+                            {wi + 1}
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800">{wl.visitorName}</p>
+                            <p className="text-xs text-gray-500">{wl.phone.replace(/(\d{3})(\d{4})(\d{4})/, '$1****$3')} · {wl.count}人</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className={cn('px-2 py-1 rounded-lg text-xs font-medium', cfg.style)}>
+                            {cfg.label}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {formatDate(wl.createdAt, 'MM-dd HH:mm')}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </Modal>
     </div>
