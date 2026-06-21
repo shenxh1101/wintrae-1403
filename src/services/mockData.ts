@@ -1,4 +1,4 @@
-import type { Exhibition, Session, TicketType, Exhibit, Booking, Verification, Feedback, Announcement } from '../types';
+import type { Exhibition, Session, TicketType, Exhibit, Booking, Verification, Feedback, Announcement, Waitlist } from '../types';
 import { addDays, format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { keys, storage } from './storage';
@@ -183,6 +183,8 @@ export const mockFeedbacks: Feedback[] = [
     ratingEnvironment: 4,
     comment: '展览非常精彩，文物精美，讲解详细。希望能有更多这样的好展览！',
     interestedExhibits: ['exbt-001', 'exbt-002'],
+    handleStatus: 'closed',
+    internalNote: '已将观众建议转交给策展团队，下次展览考虑增加互动环节。',
     createdAt: '2026-06-20T10:00:00Z',
   },
   {
@@ -193,6 +195,8 @@ export const mockFeedbacks: Feedback[] = [
     ratingEnvironment: 5,
     comment: '场馆环境很好，展品布置用心。建议增加更多互动体验环节。',
     interestedExhibits: ['exbt-003'],
+    handleStatus: 'processing',
+    internalNote: '已记录互动体验建议，评估可行性中。',
     createdAt: '2026-06-19T15:30:00Z',
   },
   {
@@ -203,7 +207,30 @@ export const mockFeedbacks: Feedback[] = [
     ratingEnvironment: 5,
     comment: '周末带孩子来看，孩子很喜欢，尤其是唐三彩骆驼，看得目不转睛。',
     interestedExhibits: ['exbt-001', 'exbt-004'],
+    handleStatus: 'pending',
+    internalNote: '',
     createdAt: '2026-06-18T11:20:00Z',
+  },
+];
+
+export const mockWaitlists: Waitlist[] = [
+  {
+    id: 'wl-001',
+    sessionId: 'ses-001',
+    visitorName: '王小明',
+    phone: '13800138001',
+    count: 2,
+    status: 'waiting',
+    createdAt: '2026-06-22T09:15:00Z',
+  },
+  {
+    id: 'wl-002',
+    sessionId: 'ses-001',
+    visitorName: '李华',
+    phone: '13900139002',
+    count: 3,
+    status: 'waiting',
+    createdAt: '2026-06-22T09:20:00Z',
   },
 ];
 
@@ -241,5 +268,6 @@ export const initMockData = (): void => {
     storage.set(keys.VERIFICATIONS, mockVerifications);
     storage.set(keys.FEEDBACKS, mockFeedbacks);
     storage.set(keys.ANNOUNCEMENTS, mockAnnouncements);
+    storage.set(keys.WAITLISTS, mockWaitlists);
   }
 };

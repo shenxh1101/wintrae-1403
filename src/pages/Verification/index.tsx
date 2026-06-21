@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   QrCode,
   Search,
@@ -13,17 +13,23 @@ import {
   Phone,
   Ticket,
   ChevronRight,
+  Download,
+  Filter,
+  Calendar,
 } from 'lucide-react';
 import { Scanner } from '@/components/features/Scanner';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { verificationService } from '@/services/verificationService';
 import { bookingService } from '@/services/bookingService';
+import { exhibitionService } from '@/services/exhibitionService';
+import { exportToExcel } from '@/utils/export';
 import { cn } from '@/lib/utils';
-import { formatDate, formatTime } from '@/utils/date';
-import type { VerificationWithDetails, BookingWithDetails } from '@/types';
+import { formatDate, formatTime, isTodayDate } from '@/utils/date';
+import type { VerificationWithDetails, BookingWithDetails, Exhibition, Session } from '@/types';
 
 type TabType = 'scan' | 'manual' | 'group';
+type StatusGroup = 'all' | 'checked' | 'late' | 'notArrived' | 'cancelled';
 
 export const VerificationPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('scan');
@@ -40,14 +46,124 @@ export const VerificationPage: React.FC = () => {
   const [showResultModal, setShowResultModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const [filterExhibition, setFilterExhibition] = useState<string>('all');
+  const [filterSession, setFilterSession] = useState<string>('all');
+  const [statusGroup, setStatusGroup] = useState<StatusGroup>('all');
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     loadData();
   }, []);
 
+  const exhibitions = exhibitionService.getAll();
+
+  const todaySessions = useMemo(() => {
+    if (filterExhibition === 'all') return [];
+    return exhibitionService.getSessions(filterExhibition).filter(s => isTodayDate(s.date));
+  }, [filterExhibition]);
+
+  const todayBookings = useMemo(() => {
+    const allBookings = bookingService.getAllWithDetails();
+    const todayOnly = allBookings.filter(b => {
+      if (b.status === 'cancelled') {
+        return b.session && isTodayDate(b.session.date);
+      }
+      return b.session && isTodayDate(b.session.date) && b.status === 'confirmed';
+    });
+    return todayOnly;
+  }, [refreshKey]);
+
+  const filteredBookings = useMemo(() => {
+    let result = todayBookings;
+
+    if (filterExhibition !== 'all') {
+      result = result.filter(b => b.exhibition?.id === filterExhibition);
+    }
+
+    if (filterSession !== 'all') {
+      result = result.filter(b => b.sessionId === filterSession);
+    }
+
+    switch (statusGroup) {
+      case 'checked':
+        result = result.filter(b => {
+          const v = verificationService.getByBookingId(b.id);
+          return v && v.status !== 'failed';
+        });
+        break;
+      case 'late':
+        result = result.filter(b => {
+          const v = verificationService.getByBookingId(b.id);
+          return v && v.status === 'late';
+        });
+        break;
+      case 'notArrived':
+        result = result.filter(b => {
+          const v = verificationService.getByBookingId(b.id);
+          return !v && b.status === 'confirmed';
+        });
+        break;
+      case 'cancelled':
+        result = result.filter(b => b.status === 'cancelled');
+        break;
+    }
+
+    return result.sort((a, b) => {
+      const timeA = a.session?.startTime || '';
+      const timeB = b.session?.startTime || '';
+      return timeA.localeCompare(timeB);
+    });
+  }, [todayBookings, filterExhibition, filterSession, statusGroup]);
+
+  const groupStats = useMemo(() => {
+    const checked = filteredBookings.filter(b => {
+      const v = verificationService.getByBookingId(b.id);
+      return v && v.status !== 'failed';
+    }).length;
+    const late = filteredBookings.filter(b => {
+      const v = verificationService.getByBookingId(b.id);
+      return v && v.status === 'late';
+    }).length;
+    const notArrived = filteredBookings.filter(b => {
+      const v = verificationService.getByBookingId(b.id);
+      return !v && b.status === 'confirmed';
+    }).length;
+    const cancelled = filteredBookings.filter(b => b.status === 'cancelled').length;
+
+    return { total: filteredBookings.length, checked, late, notArrived, cancelled };
+  }, [filteredBookings]);
+
   const loadData = () => {
     setTodayVerifications(verificationService.getTodayWithDetails());
     setTodayStats(verificationService.getTodayStats());
+  };
+
+  const handleExport = () => {
+    const data = filteredBookings.map(booking => {
+      const verification = verificationService.getByBookingId(booking.id);
+      let status = '未到';
+      let checkInTime = '-';
+      if (verification) {
+        if (verification.status === 'success') status = '已入场';
+        else if (verification.status === 'late') status = '迟到';
+        else status = '核验失败';
+        checkInTime = formatTime(verification.checkInTime);
+      } else if (booking.status === 'cancelled') {
+        status = '已取消';
+      }
+      return {
+        '预约码': booking.code,
+        '姓名': booking.visitorName,
+        '手机': booking.phone,
+        '展览': booking.exhibition?.title || '-',
+        '场次': `${booking.session?.startTime || '-'}-${booking.session?.endTime || '-'}`,
+        '票种': booking.ticketType?.name || '-',
+        '人数': booking.count,
+        '状态': status,
+        '入场时间': checkInTime,
+      };
+    });
+    exportToExcel(data, `入场名单_${formatDate(new Date(), 'yyyyMMdd')}`);
   };
 
   const handleScan = (code: string) => {
@@ -111,6 +227,7 @@ export const VerificationPage: React.FC = () => {
     });
     setShowResultModal(true);
     loadData();
+    setRefreshKey(k => k + 1);
     setGroupCodes('');
   };
 
@@ -118,6 +235,7 @@ export const VerificationPage: React.FC = () => {
     if (verificationResult?.success && verificationResult?.booking) {
       verificationService.checkIn(verificationResult.booking.id, verificationResult.isLate || false);
       loadData();
+      setRefreshKey(k => k + 1);
     }
     setShowResultModal(false);
     setVerificationResult(null);
@@ -285,70 +403,181 @@ export const VerificationPage: React.FC = () => {
 
         <div className="space-y-6">
           <div className="card p-5">
-            <h3 className="section-title mb-4">今日核验记录</h3>
-            <div className="space-y-3 max-h-[500px] overflow-y-auto scrollbar-thin">
-              {todayVerifications.length === 0 ? (
-                <p className="text-center text-gray-400 py-8">暂无核验记录</p>
-              ) : (
-                todayVerifications.map((verification) => (
-                  <div
-                    key={verification.id}
-                    className="p-3 bg-gray-50 rounded-xl flex items-center gap-3"
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="section-title mb-0">今日预约名单</h3>
+              <Button variant="ghost" size="sm" onClick={handleExport}>
+                <Download className="w-4 h-4 mr-1" /> 导出
+              </Button>
+            </div>
+
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">选择展览</label>
+                <select
+                  className="input-field !py-2 !text-sm"
+                  value={filterExhibition}
+                  onChange={(e) => {
+                    setFilterExhibition(e.target.value);
+                    setFilterSession('all');
+                  }}
+                >
+                  <option value="all">全部展览</option>
+                  {exhibitions.map((exh) => (
+                    <option key={exh.id} value={exh.id}>
+                      {exh.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {filterExhibition !== 'all' && todaySessions.length > 0 && (
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">选择场次</label>
+                  <select
+                    className="input-field !py-2 !text-sm"
+                    value={filterSession}
+                    onChange={(e) => setFilterSession(e.target.value)}
                   >
+                    <option value="all">全部场次</option>
+                    {todaySessions.map((s: any) => (
+                      <option key={s.id} value={s.id}>
+                        {s.startTime}-{s.endTime}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 mb-4">
+              <button
+                onClick={() => setStatusGroup('all')}
+                className={cn(
+                  'p-2 rounded-lg text-xs text-center transition-all',
+                  statusGroup === 'all'
+                    ? 'bg-primary-900 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                )}
+              >
+                <p className="text-lg font-bold">{groupStats.total}</p>
+                <p className="text-[10px] opacity-80">全部</p>
+              </button>
+              <button
+                onClick={() => setStatusGroup('checked')}
+                className={cn(
+                  'p-2 rounded-lg text-xs text-center transition-all',
+                  statusGroup === 'checked'
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                )}
+              >
+                <p className="text-lg font-bold text-green-600">{groupStats.checked}</p>
+                <p className="text-[10px] opacity-80">已到</p>
+              </button>
+              <button
+                onClick={() => setStatusGroup('notArrived')}
+                className={cn(
+                  'p-2 rounded-lg text-xs text-center transition-all',
+                  statusGroup === 'notArrived'
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                )}
+              >
+                <p className="text-lg font-bold text-amber-600">{groupStats.notArrived}</p>
+                <p className="text-[10px] opacity-80">未到</p>
+              </button>
+              <button
+                onClick={() => setStatusGroup('cancelled')}
+                className={cn(
+                  'p-2 rounded-lg text-xs text-center transition-all',
+                  statusGroup === 'cancelled'
+                    ? 'bg-gray-500 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                )}
+              >
+                <p className="text-lg font-bold text-gray-500">{groupStats.cancelled}</p>
+                <p className="text-[10px] opacity-80">取消</p>
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-[380px] overflow-y-auto scrollbar-thin">
+              {filteredBookings.length === 0 ? (
+                <p className="text-center text-gray-400 py-8">暂无预约记录</p>
+              ) : (
+                filteredBookings.map((booking) => {
+                  const verification = verificationService.getByBookingId(booking.id);
+                  let statusText = '未到';
+                  let statusColor = 'amber';
+                  let StatusIcon = Clock;
+
+                  if (booking.status === 'cancelled') {
+                    statusText = '已取消';
+                    statusColor = 'gray';
+                    StatusIcon = XCircle;
+                  } else if (verification) {
+                    if (verification.status === 'success') {
+                      statusText = '已入场';
+                      statusColor = 'green';
+                      StatusIcon = CheckCircle;
+                    } else if (verification.status === 'late') {
+                      statusText = '迟到';
+                      statusColor = 'amber';
+                      StatusIcon = Clock;
+                    } else {
+                      statusText = '失败';
+                      statusColor = 'red';
+                      StatusIcon = XCircle;
+                    }
+                  }
+
+                  return (
                     <div
-                      className={cn(
-                        'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0',
-                        verification.status === 'success'
-                          ? 'bg-green-100'
-                          : verification.status === 'late'
-                          ? 'bg-amber-100'
-                          : 'bg-red-100'
-                      )}
+                      key={booking.id}
+                      className="p-3 bg-gray-50 rounded-xl flex items-center gap-3 hover:bg-gray-100 transition-colors"
                     >
-                      {verification.status === 'success' ? (
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                      ) : verification.status === 'late' ? (
-                        <Clock className="w-4 h-4 text-amber-600" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-red-600" />
-                      )}
+                      <div
+                        className={cn(
+                          'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0',
+                          statusColor === 'green' && 'bg-green-100',
+                          statusColor === 'amber' && 'bg-amber-100',
+                          statusColor === 'red' && 'bg-red-100',
+                          statusColor === 'gray' && 'bg-gray-200',
+                        )}
+                      >
+                        <StatusIcon className={cn(
+                          'w-4 h-4',
+                          statusColor === 'green' && 'text-green-600',
+                          statusColor === 'amber' && 'text-amber-600',
+                          statusColor === 'red' && 'text-red-600',
+                          statusColor === 'gray' && 'text-gray-500',
+                        )} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm text-gray-800 truncate">
+                          {booking.visitorName}
+                        </p>
+                        <p className="text-xs text-gray-500 flex items-center gap-1">
+                          <span className="text-gray-400">{booking.session?.startTime}</span>
+                          <span
+                            className={cn(
+                              'px-1.5 py-0.5 rounded text-xs',
+                              statusColor === 'green' && 'bg-green-100 text-green-700',
+                              statusColor === 'amber' && 'bg-amber-100 text-amber-700',
+                              statusColor === 'red' && 'bg-red-100 text-red-700',
+                              statusColor === 'gray' && 'bg-gray-200 text-gray-600',
+                            )}
+                          >
+                            {statusText}
+                          </span>
+                          {verification && formatTime(verification.checkInTime)}
+                        </p>
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        {booking.count}人
+                      </span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm text-gray-800 truncate">
-                        {verification.booking?.visitorName || '未知'}
-                      </p>
-                      <p className="text-xs text-gray-500 flex items-center gap-1">
-                        <span
-                          className={cn(
-                            'px-1.5 py-0.5 rounded text-xs',
-                            verification.status === 'success'
-                              ? 'bg-green-100 text-green-700'
-                              : verification.status === 'late'
-                              ? 'bg-amber-100 text-amber-700'
-                              : 'bg-red-100 text-red-700'
-                          )}
-                        >
-                          {verification.status === 'success'
-                            ? '已入场'
-                            : verification.status === 'late'
-                            ? '迟到'
-                            : '失败'}
-                        </span>
-                        {formatTime(verification.checkInTime)}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleCopyCode(verification.booking?.code || '')}
-                      className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors"
-                    >
-                      {copied ? (
-                        <Check className="w-4 h-4 text-green-500" />
-                      ) : (
-                        <Copy className="w-4 h-4 text-gray-400" />
-                      )}
-                    </button>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

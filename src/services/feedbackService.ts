@@ -29,16 +29,64 @@ export const feedbackService = {
     return allFeedbacks;
   },
 
-  create(data: Omit<Feedback, 'id' | 'createdAt'>): Feedback {
+  create(data: Omit<Feedback, 'id' | 'createdAt' | 'handleStatus' | 'internalNote'>): Feedback {
     const feedbacks = this.getAll();
     const newFeedback: Feedback = {
       ...data,
       id: `fb-${Date.now()}`,
+      handleStatus: 'pending',
+      internalNote: '',
       createdAt: new Date().toISOString(),
     };
     feedbacks.push(newFeedback);
     storage.set(keys.FEEDBACKS, feedbacks);
     return newFeedback;
+  },
+
+  update(id: string, data: Partial<Feedback>): Feedback | undefined {
+    const feedbacks = this.getAll();
+    const index = feedbacks.findIndex(f => f.id === id);
+    if (index !== -1) {
+      feedbacks[index] = { ...feedbacks[index], ...data };
+      storage.set(keys.FEEDBACKS, feedbacks);
+      return feedbacks[index];
+    }
+    return undefined;
+  },
+
+  updateStatus(id: string, handleStatus: Feedback['handleStatus']): Feedback | undefined {
+    return this.update(id, { handleStatus });
+  },
+
+  updateInternalNote(id: string, internalNote: string): Feedback | undefined {
+    return this.update(id, { internalNote });
+  },
+
+  getStatusStats(exhibitionId?: string): { pending: number; processing: number; closed: number } {
+    let feedbacks = this.getAll();
+
+    if (exhibitionId && exhibitionId !== 'all') {
+      const bookingIds = new Set(
+        (storage.get<any[]>(keys.BOOKINGS) || [])
+          .filter(b => {
+            const session = this.getSessionById(b.sessionId);
+            return session?.exhibitionId === exhibitionId;
+          })
+          .map(b => b.id)
+      );
+      feedbacks = feedbacks.filter(f => bookingIds.has(f.bookingId));
+    }
+
+    return {
+      pending: feedbacks.filter(f => f.handleStatus === 'pending').length,
+      processing: feedbacks.filter(f => f.handleStatus === 'processing').length,
+      closed: feedbacks.filter(f => f.handleStatus === 'closed').length,
+    };
+  },
+
+  getSessionById(sessionId: string): any {
+    const sessions = storage.get<any[]>(keys.SESSIONS) || [];
+    return sessions.find(s => s.id === sessionId);
   },
 
   getStats(exhibitionId?: string) {

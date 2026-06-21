@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   VERIFICATIONS: 'verifications',
   FEEDBACKS: 'feedbacks',
   ANNOUNCEMENTS: 'announcements',
+  WAITLISTS: 'waitlists',
 };
 
 export const storage = {

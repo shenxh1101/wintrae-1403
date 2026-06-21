@@ -1,5 +1,6 @@
 import { storage, keys } from './storage';
 import { exhibitionService } from './exhibitionService';
+import { waitlistService } from './waitlistService';
 import type { Booking, BookingWithDetails } from '../types';
 import { format } from 'date-fns';
 
@@ -35,6 +36,15 @@ export const bookingService = {
     return { ...booking, session, exhibition, ticketType };
   },
 
+  getAllWithDetails(): BookingWithDetails[] {
+    return this.getAll().map(booking => {
+      const session = exhibitionService.getSessionById(booking.sessionId);
+      const exhibition = session ? exhibitionService.getById(session.exhibitionId) : undefined;
+      const ticketType = exhibitionService.getTicketTypeById(booking.ticketTypeId);
+      return { ...booking, session, exhibition, ticketType };
+    });
+  },
+
   generateCode(): string {
     const today = new Date();
     const dateStr = format(today, 'MMdd');
@@ -46,7 +56,7 @@ export const bookingService = {
     return `EXH-${random}-${dateStr}`;
   },
 
-  create(data: Omit<Booking, 'id' | 'code' | 'status' | 'createdAt'>): Booking | null {
+  create(data: Omit<Booking, 'id' | 'code' | 'status' | 'createdAt' | 'snapshot'>): Booking | null {
     const remaining = exhibitionService.getRemainingTickets(data.sessionId);
     if (remaining < data.count) {
       return null;
@@ -58,12 +68,24 @@ export const bookingService = {
       code = this.generateCode();
     }
 
+    const session = exhibitionService.getSessionById(data.sessionId);
+    const ticketType = exhibitionService.getTicketTypeById(data.ticketTypeId);
+    const exhibition = session ? exhibitionService.getById(session.exhibitionId) : undefined;
+
     const newBooking: Booking = {
       ...data,
       id: `bk-${Date.now()}`,
       code,
       status: 'confirmed',
       createdAt: new Date().toISOString(),
+      snapshot: {
+        sessionDate: session?.date || '',
+        sessionStartTime: session?.startTime || '',
+        sessionEndTime: session?.endTime || '',
+        ticketTypeName: ticketType?.name || '',
+        ticketTypePrice: ticketType?.price || 0,
+        exhibitionTitle: exhibition?.title || '',
+      },
     };
 
     bookings.push(newBooking);
@@ -117,13 +139,18 @@ export const bookingService = {
     return this.update(bookingId, { sessionId: newSessionId, count: newCount });
   },
 
-  cancel(id: string): boolean {
+  cancel(id: string): { success: boolean; notified?: any[] } {
     const booking = this.getById(id);
-    if (!booking) return false;
+    if (!booking) return { success: false };
 
-    exhibitionService.decrementBookedCount(booking.sessionId, booking.count);
+    const count = booking.count;
+    const sessionId = booking.sessionId;
+
+    exhibitionService.decrementBookedCount(sessionId, count);
     this.update(id, { status: 'cancelled' });
-    return true;
+
+    const notified = waitlistService.processWaitlistOnCancel(sessionId, count);
+    return { success: true, notified };
   },
 
   checkIn(id: string): boolean {

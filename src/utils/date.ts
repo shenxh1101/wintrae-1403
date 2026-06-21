@@ -42,6 +42,11 @@ export const getDaysInRange = (startStr: string, endStr: string): Date[] => {
   return days;
 };
 
+export const isTodayDate = (dateStr: string): boolean => {
+  const date = parseISO(dateStr);
+  return isToday(date);
+};
+
 export const getRelativeDateText = (dateStr: string): string => {
   const date = parseISO(dateStr);
   const today = new Date();

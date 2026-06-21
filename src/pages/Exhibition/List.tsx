@@ -10,10 +10,15 @@ import {
   Globe,
   Clock,
   ChevronRight,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  ArrowRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { exhibitionService } from '@/services/exhibitionService';
+import { bookingService } from '@/services/bookingService';
 import { formatDate } from '@/utils/date';
 import { cn } from '@/lib/utils';
 import type { Exhibition, Session, TicketType } from '@/types';
@@ -44,6 +49,12 @@ export const ExhibitionListPage: React.FC = () => {
     { name: '全价票', price: 80, description: '单人单次入场' },
   ]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingExhibition, setDeletingExhibition] = useState<Exhibition | null>(null);
+  const [deleteStats, setDeleteStats] = useState({ bookingCount: 0, sessionCount: 0 });
+  const [showSaveWarning, setShowSaveWarning] = useState(false);
+  const [pendingSave, setPendingSave] = useState(false);
+  const [affectedStats, setAffectedStats] = useState({ bookings: 0, sessions: 0 });
 
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
@@ -179,9 +190,33 @@ export const ExhibitionListPage: React.FC = () => {
   const handleSubmit = () => {
     if (!validateForm()) return;
 
+    if (editingExhibition) {
+      const affected = exhibitionService.getExhibitionAffectedBookings(editingExhibition.id);
+      const totalBookings = affected.reduce((sum, a) => sum + a.bookingCount, 0);
+      const totalSessions = affected.filter(a => a.bookingCount > 0).length;
+
+      if (totalBookings > 0) {
+        setAffectedStats({ bookings: totalBookings, sessions: totalSessions });
+        setShowSaveWarning(true);
+        setPendingSave(true);
+        return;
+      }
+    }
+
+    doSave('keep');
+  };
+
+  const doSave = (mode: 'keep' | 'cancel') => {
     let exhibition: Exhibition | undefined;
 
     if (editingExhibition) {
+      if (mode === 'cancel') {
+        const sessions = exhibitionService.getSessions(editingExhibition.id);
+        sessions.forEach(s => {
+          exhibitionService.cancelBookingsBySession(s.id);
+        });
+      }
+
       exhibition = exhibitionService.update(editingExhibition.id, formData);
       exhibitionService.deleteSessionsByExhibition(editingExhibition.id);
       exhibitionService.deleteTicketTypesByExhibition(editingExhibition.id);
@@ -209,6 +244,8 @@ export const ExhibitionListPage: React.FC = () => {
     }
 
     setShowForm(false);
+    setShowSaveWarning(false);
+    setPendingSave(false);
     loadExhibitions();
   };
 
@@ -218,11 +255,22 @@ export const ExhibitionListPage: React.FC = () => {
     loadExhibitions();
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('确定要删除这个展览吗？相关的场次和票种也会被删除。')) {
-      exhibitionService.delete(id);
+  const handleDelete = (exhibition: Exhibition) => {
+    const affected = exhibitionService.getExhibitionAffectedBookings(exhibition.id);
+    const totalBookings = affected.reduce((sum, a) => sum + a.bookingCount, 0);
+    const totalSessions = affected.filter(a => a.bookingCount > 0).length;
+    setDeletingExhibition(exhibition);
+    setDeleteStats({ bookingCount: totalBookings, sessionCount: totalSessions });
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = () => {
+    if (deletingExhibition) {
+      exhibitionService.delete(deletingExhibition.id);
       loadExhibitions();
     }
+    setShowDeleteConfirm(false);
+    setDeletingExhibition(null);
   };
 
   const addSession = () => {
@@ -376,7 +424,7 @@ export const ExhibitionListPage: React.FC = () => {
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDelete(exhibition.id)}
+                            onClick={() => handleDelete(exhibition)}
                             className="p-2 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-500 transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -664,6 +712,141 @@ export const ExhibitionListPage: React.FC = () => {
           >
             {editingExhibition ? '保存修改' : '创建展览'}
           </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        title="删除展览确认"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-4 p-4 bg-red-50 rounded-xl">
+            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+              <AlertTriangle className="w-6 h-6 text-red-600" />
+            </div>
+            <div className="flex-1">
+              <h4 className="font-medium text-red-900 mb-1">
+                确定要删除「{deletingExhibition?.title}」吗？
+              </h4>
+              <p className="text-sm text-red-700">
+                删除后相关的场次、票种数据会被清除，此操作不可撤销。
+              </p>
+            </div>
+          </div>
+
+          {deleteStats.bookingCount > 0 && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+              <p className="text-sm font-medium text-amber-800 mb-2 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                该展览有 {deleteStats.bookingCount} 条预约记录
+              </p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-white/60 rounded-lg p-2 text-center">
+                  <p className="text-lg font-bold text-amber-700">{deleteStats.sessionCount}</p>
+                  <p className="text-xs text-gray-500">受影响场次</p>
+                </div>
+                <div className="bg-white/60 rounded-lg p-2 text-center">
+                  <p className="text-lg font-bold text-amber-700">{deleteStats.bookingCount}</p>
+                  <p className="text-xs text-gray-500">受影响预约</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <Button variant="ghost" fullWidth onClick={() => setShowDeleteConfirm(false)}>
+              取消
+            </Button>
+            <Button
+              fullWidth
+              className="!bg-red-600 hover:!bg-red-700"
+              onClick={confirmDelete}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              确认删除
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showSaveWarning}
+        onClose={() => {
+          setShowSaveWarning(false);
+          setPendingSave(false);
+        }}
+        title="保存提示"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-4 p-4 bg-amber-50 rounded-xl">
+            <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+              <AlertTriangle className="w-6 h-6 text-amber-600" />
+            </div>
+            <div className="flex-1">
+              <h4 className="font-medium text-amber-900 mb-1">
+                本场展览已有 {affectedStats.bookings} 条预约
+              </h4>
+              <p className="text-sm text-amber-700">
+                修改日期、场次或票种后，已有的预约记录会受到影响。
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-gray-700">请选择处理方式：</p>
+
+            <button
+              onClick={() => doSave('keep')}
+              className="w-full p-4 border border-gray-200 rounded-xl text-left hover:border-primary-300 hover:bg-primary-50/30 transition-all"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-medium text-gray-800">保留原有预约</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    预约仍然有效，观众可查看原来的参观日期、人数和票种信息（从快照读取）
+                  </p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-400" />
+              </div>
+            </button>
+
+            <button
+              onClick={() => doSave('cancel')}
+              className="w-full p-4 border border-gray-200 rounded-xl text-left hover:border-red-300 hover:bg-red-50/30 transition-all"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <XCircle className="w-5 h-5 text-red-600" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-medium text-gray-800">取消全部相关预约</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    所有已预约的订单将被取消，系统会自动处理候补队列
+                  </p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-400" />
+              </div>
+            </button>
+          </div>
+
+          <div className="pt-2">
+            <Button
+              variant="ghost"
+              fullWidth
+              onClick={() => {
+                setShowSaveWarning(false);
+                setPendingSave(false);
+              }}
+            >
+              取消保存
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

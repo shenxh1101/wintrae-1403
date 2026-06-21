@@ -46,6 +46,14 @@ export interface Booking {
   count: number;
   status: 'pending' | 'confirmed' | 'checked_in' | 'cancelled';
   createdAt: string;
+  snapshot?: {
+    sessionDate: string;
+    sessionStartTime: string;
+    sessionEndTime: string;
+    ticketTypeName: string;
+    ticketTypePrice: number;
+    exhibitionTitle: string;
+  };
 }
 
 export interface Verification {
@@ -64,6 +72,8 @@ export interface Feedback {
   ratingEnvironment: number;
   comment: string;
   interestedExhibits: string[];
+  handleStatus: 'pending' | 'processing' | 'closed';
+  internalNote: string;
   createdAt: string;
 }
 
@@ -83,6 +93,21 @@ export interface BookingWithDetails extends Booking {
 
 export interface VerificationWithDetails extends Verification {
   booking?: Booking;
+}
+
+export interface Waitlist {
+  id: string;
+  sessionId: string;
+  visitorName: string;
+  phone: string;
+  count: number;
+  status: 'waiting' | 'notified' | 'converted' | 'expired';
+  createdAt: string;
+}
+
+export interface WaitlistWithDetails extends Waitlist {
+  session?: Session;
+  exhibition?: Exhibition;
 }
 
 export interface FeedbackWithDetails extends Feedback {

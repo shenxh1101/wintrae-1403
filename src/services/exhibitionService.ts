@@ -1,4 +1,5 @@
 import { storage, keys } from './storage';
+import { bookingService } from './bookingService';
 import type { Exhibition, Session, TicketType, Exhibit } from '../types';
 import { format, parseISO, eachDayOfInterval } from 'date-fns';
 
@@ -178,5 +179,57 @@ export const exhibitionService = {
     const session = this.getSessionById(sessionId);
     if (!session) return false;
     return this.updateSession(sessionId, { bookedCount: Math.max(0, session.bookedCount - count) }) !== undefined;
+  },
+
+  getSessionBookedCount(sessionId: string): number {
+    const bookings = bookingService.getBySession(sessionId).filter(b => b.status !== 'cancelled');
+    return bookings.reduce((sum, b) => sum + b.count, 0);
+  },
+
+  getTicketTypeUsageCount(ticketTypeId: string): number {
+    const bookings = bookingService.getAll().filter(b => b.ticketTypeId === ticketTypeId && b.status !== 'cancelled');
+    return bookings.length;
+  },
+
+  getExhibitionAffectedBookings(exhibitionId: string): { sessionId: string; count: number; bookingCount: number }[] {
+    const sessions = this.getSessions(exhibitionId);
+    return sessions.map(session => {
+      const bookings = bookingService.getBySession(session.id).filter(b => b.status !== 'cancelled');
+      return {
+        sessionId: session.id,
+        count: bookings.reduce((sum, b) => sum + b.count, 0),
+        bookingCount: bookings.length,
+      };
+    }).filter(s => s.bookingCount > 0);
+  },
+
+  migrateBookingsToSession(oldSessionId: string, newSessionId: string): boolean {
+    const bookings = bookingService.getBySession(oldSessionId).filter(b => b.status !== 'cancelled');
+    if (bookings.length === 0) return true;
+
+    const newSession = this.getSessionById(newSessionId);
+    const oldSession = this.getSessionById(oldSessionId);
+    if (!newSession || !oldSession) return false;
+
+    const totalCount = bookings.reduce((sum, b) => sum + b.count, 0);
+    const remaining = newSession.capacity - newSession.bookedCount;
+    if (remaining < totalCount) return false;
+
+    bookings.forEach(booking => {
+      bookingService.update(booking.id, { sessionId: newSessionId });
+    });
+
+    this.decrementBookedCount(oldSessionId, totalCount);
+    this.incrementBookedCount(newSessionId, totalCount);
+
+    return true;
+  },
+
+  cancelBookingsBySession(sessionId: string): number {
+    const bookings = bookingService.getBySession(sessionId).filter(b => b.status === 'confirmed');
+    bookings.forEach(booking => {
+      bookingService.cancel(booking.id);
+    });
+    return bookings.length;
   },
 };

@@ -2,6 +2,13 @@ import * as XLSX from 'xlsx';
 import type { BookingWithDetails } from '../types';
 import { formatDate } from './date';
 
+export const exportToExcel = (data: any[], filename: string = 'export.xlsx'): void => {
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  XLSX.writeFile(wb, `${filename}.xlsx`);
+};
+
 export const exportBookingsToExcel = (
   bookings: BookingWithDetails[],
   filename: string = '预约名单.xlsx'

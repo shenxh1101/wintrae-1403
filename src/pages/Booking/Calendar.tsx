@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, parseISO, startOfDay } from 'date-fns';
-import { Calendar as CalendarIcon, Clock, Users, Ticket, ChevronRight, Info } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Users, Ticket, ChevronRight, Info, ListPlus, User, Phone, CheckCircle } from 'lucide-react';
 import { Calendar } from '@/components/features/Calendar';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { exhibitionService } from '@/services/exhibitionService';
+import { waitlistService } from '@/services/waitlistService';
 import { formatDate } from '@/utils/date';
+import { validatePhone, getNameError } from '@/utils/validation';
 import { cn } from '@/lib/utils';
 import type { Exhibition, Session } from '@/types';
 
@@ -18,6 +20,11 @@ export const BookingCalendarPage: React.FC = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [showExhibitionModal, setShowExhibitionModal] = useState(false);
+  const [showWaitlistModal, setShowWaitlistModal] = useState(false);
+  const [waitlistSession, setWaitlistSession] = useState<Session | null>(null);
+  const [waitlistForm, setWaitlistForm] = useState({ name: '', phone: '', count: 1 });
+  const [waitlistSuccess, setWaitlistSuccess] = useState<{ position: number; total: number } | null>(null);
+  const [waitlistErrors, setWaitlistErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const activeExhibitions = exhibitionService.getAll().filter(e => e.status === 'active');
@@ -80,6 +87,47 @@ export const BookingCalendarPage: React.FC = () => {
         },
       });
     }
+  };
+
+  const handleOpenWaitlist = (session: Session) => {
+    setWaitlistSession(session);
+    setWaitlistForm({ name: '', phone: '', count: 1 });
+    setWaitlistSuccess(null);
+    setWaitlistErrors({});
+    setShowWaitlistModal(true);
+  };
+
+  const validateWaitlistForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    const nameError = getNameError(waitlistForm.name);
+    if (nameError) errors.name = nameError;
+    if (!validatePhone(waitlistForm.phone)) errors.phone = '请输入正确的手机号';
+    if (waitlistForm.count <= 0) errors.count = '人数必须大于0';
+    setWaitlistErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleWaitlistSubmit = () => {
+    if (!validateWaitlistForm() || !waitlistSession) return;
+
+    const result = waitlistService.create({
+      sessionId: waitlistSession.id,
+      visitorName: waitlistForm.name,
+      phone: waitlistForm.phone,
+      count: waitlistForm.count,
+    });
+
+    if (result) {
+      const position = waitlistService.getPosition(result.id);
+      const total = waitlistService.getWaitlistCount(waitlistSession.id);
+      setWaitlistSuccess({ position, total });
+    }
+  };
+
+  const handleCloseWaitlist = () => {
+    setShowWaitlistModal(false);
+    setWaitlistSession(null);
+    setWaitlistSuccess(null);
   };
 
   const getRemainingPercentage = (session: Session) => {
@@ -169,51 +217,70 @@ export const BookingCalendarPage: React.FC = () => {
                   const isSelected = selectedSession?.id === session.id;
                   const percentage = getRemainingPercentage(session);
 
+                  const waitlistCount = waitlistService.getWaitlistCount(session.id);
                   return (
-                    <button
+                    <div
                       key={session.id}
-                      onClick={() => !isFull && setSelectedSession(session)}
-                      disabled={isFull}
                       className={cn(
-                        'w-full p-4 rounded-xl border-2 text-left transition-all duration-200',
+                        'rounded-xl border-2 transition-all duration-200 overflow-hidden',
                         isSelected
                           ? 'border-primary-900 bg-primary-50'
                           : isFull
-                          ? 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60'
+                          ? 'border-gray-100 bg-gray-50'
                           : 'border-gray-100 hover:border-primary-200 hover:bg-gray-50'
                       )}
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-gray-400" />
-                          <span className="font-semibold text-primary-900">
-                            {session.startTime} - {session.endTime}
+                      <button
+                        onClick={() => !isFull && setSelectedSession(session)}
+                        disabled={isFull}
+                        className={cn('w-full p-4 text-left', isFull && 'cursor-default')}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-gray-400" />
+                            <span className="font-semibold text-primary-900">
+                              {session.startTime} - {session.endTime}
+                            </span>
+                          </div>
+                          {isFull ? (
+                            <span className="badge bg-red-100 text-red-600">已满</span>
+                          ) : remaining <= 10 ? (
+                            <span className="badge bg-amber-100 text-amber-600">即将满员</span>
+                          ) : (
+                            <span className="badge bg-green-100 text-green-600">可预约</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Users className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm text-gray-600">
+                            剩余 {remaining} / {session.capacity} 人
                           </span>
                         </div>
-                        {isFull ? (
-                          <span className="badge bg-red-100 text-red-600">已满</span>
-                        ) : remaining <= 10 ? (
-                          <span className="badge bg-amber-100 text-amber-600">即将满员</span>
-                        ) : (
-                          <span className="badge bg-green-100 text-green-600">可预约</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <Users className="w-4 h-4 text-gray-400" />
-                        <span className="text-sm text-gray-600">
-                          剩余 {remaining} / {session.capacity} 人
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className={cn(
-                            'h-full rounded-full transition-all duration-500',
-                            percentage > 30 ? 'bg-accent-teal' : percentage > 10 ? 'bg-amber-400' : 'bg-red-400'
+                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className={cn(
+                              'h-full rounded-full transition-all duration-500',
+                              percentage > 30 ? 'bg-accent-teal' : percentage > 10 ? 'bg-amber-400' : 'bg-red-400'
+                            )}
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
+                      </button>
+                      {isFull && (
+                        <button
+                          onClick={() => handleOpenWaitlist(session)}
+                          className="w-full py-2.5 border-t border-gray-200 text-sm text-primary-600 hover:bg-primary-50 transition-colors flex items-center justify-center gap-1.5"
+                        >
+                          <ListPlus className="w-4 h-4" />
+                          候补排队
+                          {waitlistCount > 0 && (
+                            <span className="text-xs bg-primary-100 text-primary-700 px-1.5 py-0.5 rounded">
+                              {waitlistCount}人
+                            </span>
                           )}
-                          style={{ width: `${percentage}%` }}
-                        />
-                      </div>
-                    </button>
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -268,6 +335,120 @@ export const BookingCalendarPage: React.FC = () => {
             ))
           )}
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={showWaitlistModal}
+        onClose={handleCloseWaitlist}
+        title="候补登记"
+        size="md"
+      >
+        {waitlistSuccess ? (
+          <div className="text-center py-6">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle className="w-8 h-8 text-green-600" />
+            </div>
+            <h3 className="text-xl font-serif font-semibold text-primary-900 mb-2">
+              候补登记成功
+            </h3>
+            <p className="text-gray-600 mb-4">
+              您的排队位置：
+              <span className="font-bold text-primary-600 text-lg">
+                第 {waitlistSuccess.position} 位
+              </span>
+              <span className="text-gray-400"> / 共 {waitlistSuccess.total} 人</span>
+            </p>
+            <p className="text-sm text-gray-500 mb-6">
+              有人取消预约时会自动顺延，请注意接听电话通知
+            </p>
+            <Button onClick={handleCloseWaitlist}>
+              知道了
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {waitlistSession && (
+              <div className="p-4 bg-primary-50/50 rounded-xl">
+                <p className="font-medium text-primary-900 mb-1">
+                  {selectedExhibition?.title}
+                </p>
+                <p className="text-sm text-gray-600">
+                  <Clock className="w-4 h-4 inline mr-1" />
+                  {formatDate(waitlistSession.date)} {waitlistSession.startTime}-{waitlistSession.endTime}
+                </p>
+              </div>
+            )}
+
+            <div>
+              <label className="label">姓名 *</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  className={cn('input-field pl-10', waitlistErrors.name && 'input-error')}
+                  value={waitlistForm.name}
+                  onChange={(e) => setWaitlistForm({ ...waitlistForm, name: e.target.value })}
+                  placeholder="请输入您的姓名"
+                />
+              </div>
+              {waitlistErrors.name && (
+                <p className="text-red-500 text-sm mt-1">{waitlistErrors.name}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="label">手机号 *</label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="tel"
+                  className={cn('input-field pl-10', waitlistErrors.phone && 'input-error')}
+                  value={waitlistForm.phone}
+                  onChange={(e) => setWaitlistForm({ ...waitlistForm, phone: e.target.value })}
+                  placeholder="请输入手机号"
+                  maxLength={11}
+                />
+              </div>
+              {waitlistErrors.phone && (
+                <p className="text-red-500 text-sm mt-1">{waitlistErrors.phone}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="label">候补人数 *</label>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setWaitlistForm({ ...waitlistForm, count: Math.max(1, waitlistForm.count - 1) })}
+                    className="px-4 py-2.5 hover:bg-gray-50 transition-colors text-xl font-medium text-gray-600"
+                  >
+                    −
+                  </button>
+                  <span className="px-6 py-2.5 text-lg font-semibold text-primary-900 min-w-[60px] text-center">
+                    {waitlistForm.count}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setWaitlistForm({ ...waitlistForm, count: waitlistForm.count + 1 })}
+                    className="px-4 py-2.5 hover:bg-gray-50 transition-colors text-xl font-medium text-gray-600"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-3">
+              <Button variant="ghost" fullWidth onClick={handleCloseWaitlist}>
+                取消
+              </Button>
+              <Button fullWidth onClick={handleWaitlistSubmit}>
+                确认候补
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

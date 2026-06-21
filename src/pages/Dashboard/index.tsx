@@ -25,6 +25,8 @@ import {
   Trash2,
   ChevronRight,
   Clock,
+  Zap,
+  BarChart3,
 } from 'lucide-react';
 import { StatsCard } from '@/components/features/StatsCard';
 import { Button } from '@/components/ui/Button';
@@ -32,10 +34,12 @@ import { Modal } from '@/components/ui/Modal';
 import { bookingService } from '@/services/bookingService';
 import { exhibitionService } from '@/services/exhibitionService';
 import { announcementService } from '@/services/announcementService';
+import { waitlistService } from '@/services/waitlistService';
+import { verificationService } from '@/services/verificationService';
 import { exportBookingsToExcel, exportBookingsToCSV } from '@/utils/export';
-import { formatDate } from '@/utils/date';
+import { formatDate, isDateInRange } from '@/utils/date';
 import { cn } from '@/lib/utils';
-import type { BookingWithDetails, Announcement } from '@/types';
+import type { BookingWithDetails, Announcement, WaitlistWithDetails } from '@/types';
 
 export const DashboardPage: React.FC = () => {
   const [trendDays, setTrendDays] = useState<7 | 30>(7);
@@ -44,6 +48,10 @@ export const DashboardPage: React.FC = () => {
   const [lowTicketAlerts, setLowTicketAlerts] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [waitlistStats, setWaitlistStats] = useState({ total: 0, sessions: 0 });
+  const [waitlists, setWaitlists] = useState<WaitlistWithDetails[]>([]);
+  const [lowTicketNext7Days, setLowTicketNext7Days] = useState<any[]>([]);
+  const [abnormalAttendance, setAbnormalAttendance] = useState<any[]>([]);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [newAnnouncement, setNewAnnouncement] = useState({ title: '', content: '' });
@@ -59,6 +67,46 @@ export const DashboardPage: React.FC = () => {
     setLowTicketAlerts(bookingService.getLowTicketAlerts(10));
     setStats(bookingService.getStats());
     setAnnouncements(announcementService.getActive());
+
+    const allWaitlists = waitlistService.getWithDetails();
+    setWaitlists(allWaitlists);
+    const sessionIds = new Set(allWaitlists.map(w => w.sessionId));
+    setWaitlistStats({ total: allWaitlists.length, sessions: sessionIds.size });
+
+    const todayStr = formatDate(new Date(), 'yyyy-MM-dd');
+    const next7DaysStr = formatDate(new Date(Date.now() + 6 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
+    const next7LowTickets = bookingService.getLowTicketAlerts(10).filter((alert: any) =>
+      isDateInRange(alert.session.date, todayStr, next7DaysStr)
+    );
+    setLowTicketNext7Days(next7LowTickets);
+
+    const exhibitions = exhibitionService.getAll();
+    const abnormal: any[] = [];
+    exhibitions.forEach(exh => {
+      let totalBooked = 0;
+      let totalChecked = 0;
+      const sessions = exhibitionService.getSessions(exh.id);
+      sessions.forEach(session => {
+        const sessionBookings = bookingService.getBySession(session.id);
+        totalBooked += sessionBookings.filter(b => b.status === 'confirmed').length;
+        sessionBookings.forEach(b => {
+          const v = verificationService.getByBookingId(b.id);
+          if (v && v.status !== 'failed') totalChecked++;
+        });
+      });
+      if (totalBooked > 0) {
+        const rate = Math.round((totalChecked / totalBooked) * 100);
+        if (rate < 60) {
+          abnormal.push({
+            exhibition: exh,
+            attendanceRate: rate,
+            totalBooked,
+            totalChecked,
+          });
+        }
+      }
+    });
+    setAbnormalAttendance(abnormal.sort((a, b) => a.attendanceRate - b.attendanceRate));
   };
 
   const handleCreateAnnouncement = () => {
@@ -192,6 +240,128 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <div className="card p-5 border-primary-100 bg-gradient-to-br from-primary-50/30 to-white">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 bg-primary-900 rounded-xl flex items-center justify-center">
+            <Zap className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h3 className="font-serif text-lg font-semibold text-primary-900">运营看板</h3>
+            <p className="text-sm text-gray-500">未来7天关键运营指标一览</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white rounded-xl p-4 border border-amber-100">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-medium text-gray-800 flex items-center gap-2">
+                <Ticket className="w-4 h-4 text-amber-500" />
+                余票紧张场次
+              </h4>
+              <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
+                {lowTicketNext7Days.length} 场
+              </span>
+            </div>
+            <div className="space-y-2 max-h-[200px] overflow-y-auto scrollbar-thin">
+              {lowTicketNext7Days.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">暂无紧张场次</p>
+              ) : (
+                lowTicketNext7Days.slice(0, 5).map((alert: any, index: number) => (
+                  <div
+                    key={index}
+                    className="p-2.5 bg-amber-50/50 rounded-lg flex items-center justify-between hover:bg-amber-50 transition-colors cursor-pointer"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {alert.exhibition.title}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {formatDate(alert.session.date, 'MM-dd')} {alert.session.startTime}
+                      </p>
+                    </div>
+                    <span className="text-xs font-bold text-amber-600 ml-2 flex-shrink-0">
+                      余{alert.remaining}张
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl p-4 border border-blue-100">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-medium text-gray-800 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-500" />
+                候补排队
+              </h4>
+              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                {waitlistStats.total} 人
+              </span>
+            </div>
+            <div className="space-y-2 max-h-[200px] overflow-y-auto scrollbar-thin">
+              {waitlists.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">暂无候补记录</p>
+              ) : (
+                waitlists.slice(0, 5).map((wl) => (
+                  <div
+                    key={wl.id}
+                    className="p-2.5 bg-blue-50/50 rounded-lg flex items-center justify-between hover:bg-blue-50 transition-colors cursor-pointer"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {wl.visitorName}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {wl.session && `${formatDate(wl.session.date, 'MM-dd')} ${wl.session.startTime}`}
+                      </p>
+                    </div>
+                    <span className="text-xs text-blue-600 ml-2 flex-shrink-0">
+                      {wl.count}人
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl p-4 border border-red-100">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-medium text-gray-800 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-red-500" />
+                到场率异常
+              </h4>
+              <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                {abnormalAttendance.length} 个
+              </span>
+            </div>
+            <div className="space-y-2 max-h-[200px] overflow-y-auto scrollbar-thin">
+              {abnormalAttendance.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">到场率均正常</p>
+              ) : (
+                abnormalAttendance.slice(0, 5).map((item: any, index: number) => (
+                  <div
+                    key={item.exhibition.id}
+                    className="p-2.5 bg-red-50/50 rounded-lg flex items-center justify-between hover:bg-red-50 transition-colors cursor-pointer"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {item.exhibition.title}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {item.totalChecked}/{item.totalBooked} 人已入场
+                      </p>
+                    </div>
+                    <span className="text-sm font-bold text-red-600 ml-2 flex-shrink-0">
+                      {item.attendanceRate}%
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 card p-5">
