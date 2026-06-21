@@ -15,13 +15,18 @@ export const feedbackService = {
     return this.getAll().find(f => f.bookingId === bookingId);
   },
 
-  getWithDetails(): FeedbackWithDetails[] {
-    return this.getAll().map(f => {
+  getWithDetails(exhibitionId?: string): FeedbackWithDetails[] {
+    const allFeedbacks = this.getAll().map(f => {
       const booking = storage.get<any[]>(keys.BOOKINGS)?.find(b => b.id === f.bookingId);
       const session = booking ? exhibitionService.getSessionById(booking.sessionId) : undefined;
       const exhibition = session ? exhibitionService.getById(session.exhibitionId) : undefined;
       return { ...f, booking, exhibition };
     });
+
+    if (exhibitionId && exhibitionId !== 'all') {
+      return allFeedbacks.filter(f => f.exhibition?.id === exhibitionId);
+    }
+    return allFeedbacks;
   },
 
   create(data: Omit<Feedback, 'id' | 'createdAt'>): Feedback {
@@ -36,8 +41,21 @@ export const feedbackService = {
     return newFeedback;
   },
 
-  getStats() {
-    const feedbacks = this.getAll();
+  getStats(exhibitionId?: string) {
+    let feedbacks = this.getAll();
+
+    if (exhibitionId && exhibitionId !== 'all') {
+      const bookingIds = new Set(
+        (storage.get<any[]>(keys.BOOKINGS) || [])
+          .filter(b => {
+            const session = exhibitionService.getSessionById(b.sessionId);
+            return session?.exhibitionId === exhibitionId;
+          })
+          .map(b => b.id)
+      );
+      feedbacks = feedbacks.filter(f => bookingIds.has(f.bookingId));
+    }
+
     const total = feedbacks.length;
 
     if (total === 0) {
@@ -65,7 +83,20 @@ export const feedbackService = {
   },
 
   getPopularExhibits(exhibitionId?: string): { exhibit: any; count: number }[] {
-    const feedbacks = this.getAll();
+    let feedbacks = this.getAll();
+
+    if (exhibitionId && exhibitionId !== 'all') {
+      const bookingIds = new Set(
+        (storage.get<any[]>(keys.BOOKINGS) || [])
+          .filter(b => {
+            const session = exhibitionService.getSessionById(b.sessionId);
+            return session?.exhibitionId === exhibitionId;
+          })
+          .map(b => b.id)
+      );
+      feedbacks = feedbacks.filter(f => bookingIds.has(f.bookingId));
+    }
+
     const exhibitCounts: Record<string, number> = {};
 
     feedbacks.forEach(f => {
@@ -74,7 +105,7 @@ export const feedbackService = {
       });
     });
 
-    const exhibits = exhibitionId
+    const exhibits = exhibitionId && exhibitionId !== 'all'
       ? exhibitionService.getExhibits(exhibitionId)
       : storage.get<any[]>(keys.EXHIBITS) || [];
 
@@ -87,8 +118,21 @@ export const feedbackService = {
       .sort((a, b) => b.count - a.count);
   },
 
-  getRatingDistribution(): { rating: number; count: number }[] {
-    const feedbacks = this.getAll();
+  getRatingDistribution(exhibitionId?: string): { rating: number; count: number }[] {
+    let feedbacks = this.getAll();
+
+    if (exhibitionId && exhibitionId !== 'all') {
+      const bookingIds = new Set(
+        (storage.get<any[]>(keys.BOOKINGS) || [])
+          .filter(b => {
+            const session = exhibitionService.getSessionById(b.sessionId);
+            return session?.exhibitionId === exhibitionId;
+          })
+          .map(b => b.id)
+      );
+      feedbacks = feedbacks.filter(f => bookingIds.has(f.bookingId));
+    }
+
     const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
     feedbacks.forEach(f => {

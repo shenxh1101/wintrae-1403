@@ -29,20 +29,16 @@ export const FeedbackListPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [activeExhibition]);
 
   const loadData = () => {
-    const allFeedbacks = feedbackService.getWithDetails();
-    const filtered = activeExhibition === 'all'
-      ? allFeedbacks
-      : allFeedbacks.filter(f => f.exhibition?.id === activeExhibition);
-
+    const filtered = feedbackService.getWithDetails(activeExhibition);
     setFeedbacks(filtered.sort((a, b) =>
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     ));
-    setStats(feedbackService.getStats());
-    setPopularExhibits(feedbackService.getPopularExhibits());
-    setRatingDistribution(feedbackService.getRatingDistribution());
+    setStats(feedbackService.getStats(activeExhibition));
+    setPopularExhibits(feedbackService.getPopularExhibits(activeExhibition));
+    setRatingDistribution(feedbackService.getRatingDistribution(activeExhibition));
   };
 
   const exhibitions = exhibitionService.getAll();

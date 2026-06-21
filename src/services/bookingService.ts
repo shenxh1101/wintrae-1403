@@ -88,13 +88,31 @@ export const bookingService = {
     const booking = this.getById(bookingId);
     if (!booking) return null;
 
-    const oldRemaining = exhibitionService.getRemainingTickets(newSessionId);
-    if (oldRemaining < newCount) {
+    const isSameSession = booking.sessionId === newSessionId;
+    const newSessionRemaining = exhibitionService.getRemainingTickets(newSessionId);
+
+    let availableForNewCount: number;
+    if (isSameSession) {
+      availableForNewCount = newSessionRemaining + booking.count;
+    } else {
+      availableForNewCount = newSessionRemaining;
+    }
+
+    if (availableForNewCount < newCount) {
       return null;
     }
 
-    exhibitionService.decrementBookedCount(booking.sessionId, booking.count);
-    exhibitionService.incrementBookedCount(newSessionId, newCount);
+    if (isSameSession) {
+      const diff = newCount - booking.count;
+      if (diff > 0) {
+        exhibitionService.incrementBookedCount(newSessionId, diff);
+      } else if (diff < 0) {
+        exhibitionService.decrementBookedCount(newSessionId, -diff);
+      }
+    } else {
+      exhibitionService.decrementBookedCount(booking.sessionId, booking.count);
+      exhibitionService.incrementBookedCount(newSessionId, newCount);
+    }
 
     return this.update(bookingId, { sessionId: newSessionId, count: newCount });
   },

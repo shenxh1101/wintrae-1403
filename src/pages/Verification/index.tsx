@@ -54,13 +54,6 @@ export const VerificationPage: React.FC = () => {
     const result = verificationService.verifyBooking(code);
     setVerificationResult(result);
     setShowResultModal(true);
-
-    if (result.success && result.booking) {
-      setTimeout(() => {
-        verificationService.checkIn(result.booking!.id, result.isLate || false);
-        loadData();
-      }, 500);
-    }
   };
 
   const handleManualSearch = () => {
@@ -83,12 +76,10 @@ export const VerificationPage: React.FC = () => {
       }
     } else {
       const result = verificationService.verifyBooking(searchCode.trim());
-      if (result.success && result.booking) {
-        booking = result.booking;
-      } else {
-        setSearchError(result.message);
-        return;
-      }
+      setVerificationResult(result);
+      setShowResultModal(true);
+      setSearchCode('');
+      return;
     }
 
     if (!booking) {
@@ -99,13 +90,7 @@ export const VerificationPage: React.FC = () => {
     const result = verificationService.verifyBooking(booking.code);
     setVerificationResult(result);
     setShowResultModal(true);
-
-    if (result.success) {
-      setTimeout(() => {
-        verificationService.checkIn(booking!.id, result.isLate || false);
-        loadData();
-      }, 500);
-    }
+    setSearchCode('');
   };
 
   const handleGroupCheckIn = () => {

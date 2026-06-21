@@ -43,6 +43,76 @@ export const ExhibitionListPage: React.FC = () => {
   const [ticketTypes, setTicketTypes] = useState<{ name: string; price: number; description: string }[]>([
     { name: '全价票', price: 80, description: '单人单次入场' },
   ]);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!formData.title.trim()) {
+      errors.title = '请输入展览名称';
+    }
+
+    if (!formData.startDate) {
+      errors.startDate = '请选择开始日期';
+    }
+
+    if (!formData.endDate) {
+      errors.endDate = '请选择结束日期';
+    }
+
+    if (formData.startDate && formData.endDate && formData.startDate > formData.endDate) {
+      errors.dateRange = '结束日期不能早于开始日期';
+    }
+
+    sessions.forEach((session, index) => {
+      if (!session.startTime) {
+        errors[`session-start-${index}`] = `请输入第${index + 1}场开始时间`;
+      }
+      if (!session.endTime) {
+        errors[`session-end-${index}`] = `请输入第${index + 1}场结束时间`;
+      }
+      if (session.startTime && session.endTime && session.startTime >= session.endTime) {
+        errors[`session-range-${index}`] = `第${index + 1}场结束时间必须晚于开始时间`;
+      }
+    });
+
+    if (capacity <= 0 || !Number.isFinite(capacity)) {
+      errors.capacity = '人数上限必须是大于0的正数';
+    }
+
+    ticketTypes.forEach((ticket, index) => {
+      if (!ticket.name.trim()) {
+        errors[`ticket-name-${index}`] = `请输入第${index + 1}个票种名称`;
+      }
+      if (ticket.price < 0 || !Number.isFinite(ticket.price)) {
+        errors[`ticket-price-${index}`] = `第${index + 1}个票种价格不能为负数`;
+      }
+    });
+
+    if (formData.languages.length === 0) {
+      errors.languages = '请至少选择一种导览语言';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const isFormValid = (): boolean => {
+    if (!formData.title.trim()) return false;
+    if (!formData.startDate || !formData.endDate) return false;
+    if (formData.startDate > formData.endDate) return false;
+    if (capacity <= 0 || !Number.isFinite(capacity)) return false;
+    if (formData.languages.length === 0) return false;
+    for (const session of sessions) {
+      if (!session.startTime || !session.endTime) return false;
+      if (session.startTime >= session.endTime) return false;
+    }
+    for (const ticket of ticketTypes) {
+      if (!ticket.name.trim()) return false;
+      if (ticket.price < 0 || !Number.isFinite(ticket.price)) return false;
+    }
+    return true;
+  };
 
   useEffect(() => {
     loadExhibitions();
@@ -55,6 +125,7 @@ export const ExhibitionListPage: React.FC = () => {
   };
 
   const handleOpenForm = (exhibition?: Exhibition) => {
+    setFormErrors({});
     if (exhibition) {
       setEditingExhibition(exhibition);
       setFormData({
@@ -106,7 +177,7 @@ export const ExhibitionListPage: React.FC = () => {
   };
 
   const handleSubmit = () => {
-    if (!formData.title || !formData.startDate || !formData.endDate) return;
+    if (!validateForm()) return;
 
     let exhibition: Exhibition | undefined;
 
@@ -332,11 +403,14 @@ export const ExhibitionListPage: React.FC = () => {
             <label className="label">展览名称 *</label>
             <input
               type="text"
-              className="input-field"
+              className={cn('input-field', formErrors.title && 'input-error')}
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               placeholder="请输入展览名称"
             />
+            {formErrors.title && (
+              <p className="text-red-500 text-sm mt-1">{formErrors.title}</p>
+            )}
           </div>
 
           <div>
@@ -354,21 +428,30 @@ export const ExhibitionListPage: React.FC = () => {
               <label className="label">开始日期 *</label>
               <input
                 type="date"
-                className="input-field"
+                className={cn('input-field', (formErrors.startDate || formErrors.dateRange) && 'input-error')}
                 value={formData.startDate}
                 onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
               />
+              {formErrors.startDate && (
+                <p className="text-red-500 text-sm mt-1">{formErrors.startDate}</p>
+              )}
             </div>
             <div>
               <label className="label">结束日期 *</label>
               <input
                 type="date"
-                className="input-field"
+                className={cn('input-field', (formErrors.endDate || formErrors.dateRange) && 'input-error')}
                 value={formData.endDate}
                 onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
               />
+              {formErrors.endDate && (
+                <p className="text-red-500 text-sm mt-1">{formErrors.endDate}</p>
+              )}
             </div>
           </div>
+          {formErrors.dateRange && (
+            <p className="text-red-500 text-sm -mt-2">{formErrors.dateRange}</p>
+          )}
 
           <div>
             <label className="label">封面图片</label>
@@ -403,40 +486,56 @@ export const ExhibitionListPage: React.FC = () => {
               </Button>
             </div>
             <div className="space-y-3">
-              {sessions.map((session, index) => (
-                <div key={index} className="flex items-center gap-3">
-                  <input
-                    type="time"
-                    className="input-field flex-1"
-                    value={session.startTime}
-                    onChange={(e) => updateSession(index, 'startTime', e.target.value)}
-                  />
-                  <span className="text-gray-400">至</span>
-                  <input
-                    type="time"
-                    className="input-field flex-1"
-                    value={session.endTime}
-                    onChange={(e) => updateSession(index, 'endTime', e.target.value)}
-                  />
-                  <button
-                    onClick={() => removeSession(index)}
-                    className="p-2.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
-                    disabled={sessions.length <= 1}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+              {sessions.map((session, index) => {
+                const startError = formErrors[`session-start-${index}`];
+                const endError = formErrors[`session-end-${index}`];
+                const rangeError = formErrors[`session-range-${index}`];
+                const hasError = startError || endError || rangeError;
+                return (
+                  <div key={index}>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="time"
+                        className={cn('input-field flex-1', (startError || rangeError) && 'input-error')}
+                        value={session.startTime}
+                        onChange={(e) => updateSession(index, 'startTime', e.target.value)}
+                      />
+                      <span className="text-gray-400">至</span>
+                      <input
+                        type="time"
+                        className={cn('input-field flex-1', (endError || rangeError) && 'input-error')}
+                        value={session.endTime}
+                        onChange={(e) => updateSession(index, 'endTime', e.target.value)}
+                      />
+                      <button
+                        onClick={() => removeSession(index)}
+                        className="p-2.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+                        disabled={sessions.length <= 1}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {(startError || endError || rangeError) && (
+                      <p className="text-red-500 text-sm mt-1">
+                        {startError || endError || rangeError}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <div className="mt-3">
               <label className="label">单场人数上限</label>
               <input
                 type="number"
-                className="input-field w-32"
+                className={cn('input-field w-32', formErrors.capacity && 'input-error')}
                 value={capacity}
-                onChange={(e) => setCapacity(parseInt(e.target.value) || 50)}
+                onChange={(e) => setCapacity(parseInt(e.target.value) || 0)}
                 min={1}
               />
+              {formErrors.capacity && (
+                <p className="text-red-500 text-sm mt-1">{formErrors.capacity}</p>
+              )}
             </div>
           </div>
 
@@ -450,49 +549,60 @@ export const ExhibitionListPage: React.FC = () => {
               </Button>
             </div>
             <div className="space-y-3">
-              {ticketTypes.map((ticket, index) => (
-                <div key={index} className="grid grid-cols-12 gap-3 items-end">
-                  <div className="col-span-4">
-                    <label className="label">名称</label>
-                    <input
-                      type="text"
-                      className="input-field"
-                      value={ticket.name}
-                      onChange={(e) => updateTicketType(index, 'name', e.target.value)}
-                      placeholder="如：全价票"
-                    />
+              {ticketTypes.map((ticket, index) => {
+                const nameError = formErrors[`ticket-name-${index}`];
+                const priceError = formErrors[`ticket-price-${index}`];
+                return (
+                  <div key={index} className="grid grid-cols-12 gap-3 items-end">
+                    <div className="col-span-4">
+                      <label className="label">名称</label>
+                      <input
+                        type="text"
+                        className={cn('input-field', nameError && 'input-error')}
+                        value={ticket.name}
+                        onChange={(e) => updateTicketType(index, 'name', e.target.value)}
+                        placeholder="如：全价票"
+                      />
+                      {nameError && (
+                        <p className="text-red-500 text-sm mt-1">{nameError}</p>
+                      )}
+                    </div>
+                    <div className="col-span-3">
+                      <label className="label">价格</label>
+                      <input
+                        type="number"
+                        className={cn('input-field', priceError && 'input-error')}
+                        value={ticket.price}
+                        onChange={(e) => updateTicketType(index, 'price', parseFloat(e.target.value) || 0)}
+                        placeholder="0"
+                        min={0}
+                      />
+                      {priceError && (
+                        <p className="text-red-500 text-sm mt-1">{priceError}</p>
+                      )}
+                    </div>
+                    <div className="col-span-4">
+                      <label className="label">说明</label>
+                      <input
+                        type="text"
+                        className="input-field"
+                        value={ticket.description}
+                        onChange={(e) => updateTicketType(index, 'description', e.target.value)}
+                        placeholder="票种说明"
+                      />
+                    </div>
+                    <div className="col-span-1">
+                      <button
+                        onClick={() => removeTicketType(index)}
+                        className="p-2.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500 transition-colors w-full"
+                        disabled={ticketTypes.length <= 1}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="col-span-3">
-                    <label className="label">价格</label>
-                    <input
-                      type="number"
-                      className="input-field"
-                      value={ticket.price}
-                      onChange={(e) => updateTicketType(index, 'price', parseFloat(e.target.value) || 0)}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="col-span-4">
-                    <label className="label">说明</label>
-                    <input
-                      type="text"
-                      className="input-field"
-                      value={ticket.description}
-                      onChange={(e) => updateTicketType(index, 'description', e.target.value)}
-                      placeholder="票种说明"
-                    />
-                  </div>
-                  <div className="col-span-1">
-                    <button
-                      onClick={() => removeTicketType(index)}
-                      className="p-2.5 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-500 transition-colors w-full"
-                      disabled={ticketTypes.length <= 1}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -509,13 +619,17 @@ export const ExhibitionListPage: React.FC = () => {
                     'px-4 py-2 rounded-lg text-sm font-medium transition-all',
                     formData.languages.includes(lang)
                       ? 'bg-primary-900 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
+                    formErrors.languages && 'ring-2 ring-red-300'
                   )}
                 >
                   {lang}
                 </button>
               ))}
             </div>
+            {formErrors.languages && (
+              <p className="text-red-500 text-sm mt-2">{formErrors.languages}</p>
+            )}
           </div>
 
           <div>
@@ -546,7 +660,7 @@ export const ExhibitionListPage: React.FC = () => {
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={!formData.title || !formData.startDate || !formData.endDate}
+            disabled={!isFormValid()}
           >
             {editingExhibition ? '保存修改' : '创建展览'}
           </Button>

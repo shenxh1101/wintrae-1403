@@ -1,7 +1,7 @@
 import { storage, keys } from './storage';
 import { bookingService } from './bookingService';
 import type { Verification, VerificationWithDetails } from '../types';
-import { format, parse, isAfter } from 'date-fns';
+import { format, parse, isAfter, isSameDay } from 'date-fns';
 
 export const verificationService = {
   getAll(): Verification[] {
@@ -32,11 +32,15 @@ export const verificationService = {
     }));
   },
 
-  isLate(sessionStartTime: string, checkInTime: Date = new Date()): boolean {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const sessionDateTime = parse(`${today} ${sessionStartTime}`, 'yyyy-MM-dd HH:mm', new Date());
+  isLate(sessionDate: string, sessionStartTime: string, checkInTime: Date = new Date()): boolean {
+    const sessionDateTime = parse(`${sessionDate} ${sessionStartTime}`, 'yyyy-MM-dd HH:mm', new Date());
     const fifteenMinutesLater = new Date(sessionDateTime.getTime() + 15 * 60 * 1000);
     return isAfter(checkInTime, fifteenMinutesLater);
+  },
+
+  isSameDayAsSession(sessionDate: string, checkInTime: Date = new Date()): boolean {
+    const sessionDay = parse(sessionDate, 'yyyy-MM-dd', new Date());
+    return isSameDay(checkInTime, sessionDay);
   },
 
   verifyBooking(bookingCode: string): { success: boolean; message: string; booking?: any; isLate?: boolean } {
@@ -54,27 +58,40 @@ export const verificationService = {
       return { success: false, message: '该预约已核验入场，请勿重复核验' };
     }
 
-    const session = bookingService.getWithDetails(booking.id)?.session;
+    const bookingWithDetails = bookingService.getWithDetails(booking.id);
+    const session = bookingWithDetails?.session;
     if (!session) {
       return { success: false, message: '场次信息不存在' };
     }
 
-    const isLate = this.isLate(session.startTime);
-
     const existingVerification = this.getByBookingId(booking.id);
     if (existingVerification) {
-      return { success: false, message: '该预约已核验入场' };
+      return { success: false, message: '该预约已核验入场，请勿重复核验' };
     }
+
+    if (!this.isSameDayAsSession(session.date)) {
+      return {
+        success: false,
+        message: `该预约场次为${format(parse(session.date, 'yyyy-MM-dd', new Date()), 'MM月dd日')}，非今日场次，无法核验`,
+      };
+    }
+
+    const isLate = this.isLate(session.date, session.startTime);
 
     return {
       success: true,
       message: isLate ? '预约有效，但已迟到15分钟以上' : '预约有效，核验成功',
-      booking: bookingService.getWithDetails(booking.id),
+      booking: bookingWithDetails,
       isLate,
     };
   },
 
-  checkIn(bookingId: string, isLate: boolean = false): Verification {
+  checkIn(bookingId: string, isLate: boolean = false): Verification | null {
+    const existing = this.getByBookingId(bookingId);
+    if (existing) {
+      return null;
+    }
+
     const verifications = this.getAll();
     const verification: Verification = {
       id: `ver-${Date.now()}`,
@@ -98,8 +115,12 @@ export const verificationService = {
     bookingCodes.forEach(code => {
       const result = this.verifyBooking(code);
       if (result.success && result.booking) {
-        this.checkIn(result.booking.id, result.isLate || false);
-        success.push(code);
+        const checked = this.checkIn(result.booking.id, result.isLate || false);
+        if (checked) {
+          success.push(code);
+        } else {
+          failed.push({ code, message: '该预约已核验入场' });
+        }
       } else {
         failed.push({ code, message: result.message });
       }
